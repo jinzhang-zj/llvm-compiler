@@ -406,7 +406,7 @@ int main(int argc, char **argv) {
   }
   
   int count = 0;
-  int regNum = 8;
+  int regNum = 3;
   std::string RegArray[14] = {"%rax", "%rbx", "%r10", "%r11", "%r12", "%r13", "%r14", "%r15", "%r9", "%8", "%rcx", "%rdx",
 				"%rsi", "%rdi"};
 

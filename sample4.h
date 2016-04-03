@@ -79,8 +79,56 @@ std::map<Instruction*, std::string> RegTable;  // Instruction and register
 std::map<std::string, Instruction*> InsTable;  // Register and instruction
 
 int offCount = 0;	// Global value for offset count
+static int getNexOff()
+{
+  offCount += 8;
+  return offCount - 8;
+}
 
+// Expire the old register that's not useful
+static void expireOldInterval(Instruction *inst) {
+  int T = InstIdx[inst];
+  errs() << "expire " << "\n";
+  for (auto it = InsTable.begin(); it != InsTable.end(); ++it)
+  {
+    NODEPTR cur = nodes[it->second];
+    if (cur->end < T)
+    {
+      pools.insert(it->first);
+      InsTable.erase(it->first);
+      RegTable.erase(it->second);
+    }
+  }
+}
+
+static std::string spillAtInterval(Instruction *inst)
+{
+  int maxEnd = -1;
+  Instruction *maxIns = NULL;
+
+  for (auto it = InsTable.begin(); it != InsTable.end(); ++it)
+  {
+    NODEPTR cur = nodes[it->second];
+    if (cur->end > maxEnd)
+    {
+      maxEnd = cur->end;
+      maxIns = cur->inst;
+    }
+  }
+
+  std::string reg = RegTable[maxIns];
+  int offset = getNexOff();
+  RegTable[maxIns] = std::to_string(offset) + "(%rbp)";
+  std::cout << "movq " << RegTable[maxIns] << ", " << reg << "\n";
+  return reg;
+}
+
+// Allocate register with linear scan algorithm
 static std::string getNexReg(Instruction *inst) {
+  // expire old register first
+  expireOldInterval(inst);
+
+  // Get a new one with linear scan algorithm
   std::string reg;
   if (!pools.empty())
   {
@@ -91,15 +139,11 @@ static std::string getNexReg(Instruction *inst) {
   else
   {
     // spill
+    reg = spillAtInterval(inst);
   }
+
   //errs() << "\ninstruction " << *inst << " is getting " << reg << "\n";
   return reg;
-}
-
-static int getNexOff()
-{
-  offCount += 8;
-  return offCount - 8;
 }
 
 #define BURP 0
@@ -291,19 +335,19 @@ int burm_file_numbers[] = {
 };
 
 int burm_line_numbers[] = {
-  /* 0 */  112,
-  /* 1 */  119,
-  /* 2 */  130,
-  /* 3 */  141,
-  /* 4 */  156,
-  /* 5 */  166,
-  /* 6 */  180,
-  /* 7 */  194,
-  /* 8 */  211,
-  /* 9 */  235,
-  /* 10 */  250,
-  /* 11 */  260,
-  /* 12 */  270,
+  /* 0 */  156,
+  /* 1 */  163,
+  /* 2 */  174,
+  /* 3 */  185,
+  /* 4 */  200,
+  /* 5 */  210,
+  /* 6 */  227,
+  /* 7 */  241,
+  /* 8 */  258,
+  /* 9 */  282,
+  /* 10 */  297,
+  /* 11 */  307,
+  /* 12 */  317,
 };
 
 #pragma GCC diagnostic push
@@ -653,9 +697,12 @@ int indent)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
                 std::string reg1 = getNexReg(_s->node->inst);
-		RegTable[_s->node->inst] = reg1;
-                InsTable[reg1] = _s->node->inst;
                 std::cout << "movq " + reg1 + ", " + RegTable[_s->node->inst] + "\n";
+                if (RegTable[_s->node->inst][0] != '%')
+                {
+                  RegTable[_s->node->inst] = reg1;
+                  InsTable[reg1] = _s->node->inst;
+                }
                 return reg1;
 	
 }
