@@ -118,7 +118,7 @@ typedef struct tree {
 
 void updateSymTable(Instruction* inst) {
   int offset = getNexOff();
-  errs() << "instruction: " << *inst << " offset " << offset << "\n";
+  //errs() << "instruction: " << *inst << " offset " << offset << "\n";
   SymTable.insert( std::make_pair(inst, offset) );
 }
 
@@ -216,13 +216,11 @@ Tree makeAddressNode(Instruction* inst, int idx) {
   Instruction *opinst = dyn_cast<Instruction>(inst->getOperand(idx));
   if(strcmp(opinst->getOpcodeName(), "alloca") == 0)
   {
-    errs() << "makeAddressNode " <<  *inst << " alloca " << idx << "\n";
     child->op = ADDRLP;
     child->inst = inst;
   }
   else //(strcmp(opinst->getOpcodeName(), "load") == 0)
   {
-    errs() << "makeAddressNode " <<  *inst << " load " << idx << "\n";
     child->op = LOADI;
     child->inst = opinst;
   }
@@ -245,7 +243,7 @@ bool setTreeNode(Tree t, Instruction* inst) {
 
     // Store instruction
   case Instruction::Store: {
-    errs() << "Instruction Store: ";
+    //errs() << "Instruction Store: ";
     t->op = STOREI;
     t->inst = inst; 
     t->num_kids = 2;
@@ -255,7 +253,7 @@ bool setTreeNode(Tree t, Instruction* inst) {
 
     Instruction* kidinst0 = dyn_cast<Instruction>(inst->getOperand(0));  
     Instruction* kidinst1 = dyn_cast<Instruction>(inst->getOperand(1));
-    errs() << "Child 1 type " << *(inst->getOperand(1)->getType()) << "\n";
+    //errs() << "Child 1 type " << *(inst->getOperand(1)->getType()) << "\n";
     // Computing the left child of store node
     if(isa<Constant>(inst->getOperand(0))) {
       free (child0);
@@ -408,24 +406,33 @@ int main(int argc, char **argv) {
   }
   
   int count = 0;
+  int regNum = 8;
+  std::string RegArray[14] = {"%rax", "%rbx", "%r10", "%r11", "%r12", "%r13", "%r14", "%r15", "%r9", "%8", "%rcx", "%rdx",
+				"%rsi", "%rdi"};
 
-  std::string regArray[14] = {"%rax", "%rdi", "%rci", "%rcx", "%rdx", "%r8", "%r9", "%r10", "%r11"}
+  // Get the active pool of registers
+  for (int i = 0; i < regNum; ++i)
+    pools.insert(RegArray[i]);
 
-
+  int num = 0;
   // First we iterate over all instructions in the module
   for(Module::iterator func_itr = M->begin(); func_itr != M->end(); ++func_itr) {
     for(Function::iterator BB_itr = func_itr->begin(); BB_itr != func_itr->end(); ++BB_itr) {
       for(BasicBlock::iterator inst_itr = BB_itr->begin(); inst_itr != BB_itr->end(); ++inst_itr) {
 
+
 	// inst_itr points to an instruction in module M
 	count ++;
-	errs() << "Instruction  "<<  count << ": " << *inst_itr <<" has " <<  inst_itr->getNumOperands() << " operands : ";
+
+        // Assign order to each instruction for calculation of life time interval
+        InstIdx.insert( make_pair(inst_itr, count));
+
+	errs() << "Instruction  " << count << ": " << *inst_itr << " has " << inst_itr->getNumOperands() << " operands : ";
 	for(unsigned int i=0; i < inst_itr->getNumOperands(); i++) {
 	  if(isa<Constant>(inst_itr->getOperand(i)))
 	    errs() << dyn_cast<Constant>(inst_itr->getOperand(i))<<" ";
 	  else 
 	    errs() << dyn_cast<Instruction>(inst_itr->getOperand(i)) <<" ";
-	
 	}
 	errs() << "\n";
 	
@@ -434,7 +441,6 @@ int main(int argc, char **argv) {
 	// If instruction is an alloca, then we only need to update the symbol table. 
 	if(strcmp(inst_itr->getOpcodeName(), "alloca") == 0)
         {
-          errs() << "updating " << *inst_itr << "\n";
 	  updateSymTable(inst_itr);
           continue;
 	}
@@ -450,6 +456,10 @@ int main(int argc, char **argv) {
 	
 	bool b = setTreeNode(t, inst_itr);
 	
+        // Calculate the lifetime interval 
+	updateLifeInterval(t);
+
+
 	t->inst_num = count;
 	//errs() << t->kids[1]->op<< "inside main\n"; 
 
@@ -473,6 +483,18 @@ int main(int argc, char **argv) {
     }
   }
   
+  for(Module::iterator func_itr = M->begin(); func_itr != M->end(); ++func_itr) 
+  {
+    for(Function::iterator BB_itr = func_itr->begin(); BB_itr != func_itr->end(); ++BB_itr) 
+    {
+      for(BasicBlock::iterator inst_itr = BB_itr->begin(); inst_itr != BB_itr->end(); ++inst_itr) 
+      {
+        if (nodes.find(inst_itr) == nodes.end())
+          continue;
+	errs() << "Instruction " << InstIdx[inst_itr] << ": " << *inst_itr <<" has life time interval " << nodes[inst_itr]->start << " to " << nodes[inst_itr]->end << "\n";
+      }
+    }
+  }
   
   for( Tree t : rootKeys ) {
     gen(t);

@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <unordered_set>
 enum {
   LOADI=1, STOREI=2, CNSTT=3, ADDI1=4,
   ADDI2=5, STOREI2=10,
@@ -31,6 +32,8 @@ typedef struct tree {
   int inst_num;
   struct tree *kids[2];
   int val;
+  int start;
+  int end;
   int num_kids;
   Instruction *inst;      
   struct { struct burm_state *state; } x;
@@ -67,20 +70,30 @@ int OP_LABEL(NODEPTR p) {
 static void burm_trace(NODEPTR, int, COST);
 
 std::vector<Tree> rootKeys;
-std::vector<std::string> pools;
+std::unordered_set<std::string> pools;			// active pool of registers
 std::map<Instruction*, Tree> roots;
 std::map<Instruction*, Tree> nodes;
-std::map<Instruction*, int> SymTable;
-std::map<Instruction*, std::string> RegTable;
-std::map<std::string, Instruction*> InsTable;
+std::map<Instruction*, int> SymTable;	// Instruction and offset in stack
+std::map<Instruction*, int> InstIdx;	// Instruction and its number
+std::map<Instruction*, std::string> RegTable;  // Instruction and register
+std::map<std::string, Instruction*> InsTable;  // Register and instruction
 
-int RegCount = 0;
-int offCount = 0;
+int offCount = 0;	// Global value for offset count
 
-static std::string getNexReg() {
-  RegCount++;
-  std::string s = "%tmp";
-  return s + std::to_string(RegCount - 1);
+static std::string getNexReg(Instruction *inst) {
+  std::string reg;
+  if (!pools.empty())
+  {
+    auto it = pools.begin();
+    reg = *it;
+    pools.erase(reg);
+  }
+  else
+  {
+    // spill
+  }
+  //errs() << "\ninstruction " << *inst << " is getting " << reg << "\n";
+  return reg;
 }
 
 static int getNexOff()
@@ -278,19 +291,19 @@ int burm_file_numbers[] = {
 };
 
 int burm_line_numbers[] = {
-  /* 0 */  99,
-  /* 1 */  106,
-  /* 2 */  117,
-  /* 3 */  128,
-  /* 4 */  141,
-  /* 5 */  151,
-  /* 6 */  164,
-  /* 7 */  178,
-  /* 8 */  194,
-  /* 9 */  219,
-  /* 10 */  234,
-  /* 11 */  244,
-  /* 12 */  254,
+  /* 0 */  112,
+  /* 1 */  119,
+  /* 2 */  130,
+  /* 3 */  141,
+  /* 4 */  156,
+  /* 5 */  166,
+  /* 6 */  180,
+  /* 7 */  194,
+  /* 8 */  211,
+  /* 9 */  235,
+  /* 10 */  250,
+  /* 11 */  260,
+  /* 12 */  270,
 };
 
 #pragma GCC diagnostic push
@@ -594,7 +607,9 @@ int indent)
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
-                std::string reg1 = getNexReg();
+                std::string reg1 = getNexReg(_s->node->inst);
+		RegTable[_s->node->inst] = reg1;
+                InsTable[reg1] = _s->node->inst;
                 std::cout << "leaq " << reg1 << ", " << disp_action(_s->kids[1],indent+1) << "\n";
 		std::cout << "movq " + disp_action(_s->kids[0],indent+1) + ", " + reg1 + "\n";
 		return "";
@@ -637,10 +652,11 @@ int indent)
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
-                std::string t1 = getNexReg();
-                NODEPTR cur = _s->node;
-                std::cout << "movq " + t1 + ", " + RegTable[cur->inst] + "\n";
-                return t1;
+                std::string reg1 = getNexReg(_s->node->inst);
+		RegTable[_s->node->inst] = reg1;
+                InsTable[reg1] = _s->node->inst;
+                std::cout << "movq " + reg1 + ", " + RegTable[_s->node->inst] + "\n";
+                return reg1;
 	
 }
   break;
@@ -670,13 +686,14 @@ int indent)
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
-                std::string t1 = getNexReg();
+                std::string reg1 = getNexReg(_s->node->inst);
+		RegTable[_s->node->inst] = reg1;
+                InsTable[reg1] = _s->node->inst;
                 NODEPTR cur = _s->node;
                 Instruction *inst = dyn_cast<Instruction>(cur->inst->getOperand(0));
-                errs() << "LOAD 1" << *inst << "\n";
                 int offset = SymTable[inst];
-                std::cout << "movq " + t1 + ", " + std::to_string(offset) + "(%rbp)\n";
-                return t1;
+                std::cout << "movq " + reg1 + ", " + std::to_string(offset) + "(%rbp)\n";
+                return reg1;
 	
 }
   break;
@@ -715,7 +732,6 @@ int indent)
                   if (c == '*')
                     level++;
                 int offset = 0;
-                errs() << "ADDRLP instruction: " << *inst << "\n";
                 offset = SymTable[inst];
                 std::string ret =  std::to_string(offset) + "(%rbp)";
                 return ret;
@@ -1168,5 +1184,21 @@ static void gen(NODEPTR p) {
 			dumpCover(p, 1, 0);
 	}
 }
-#endif
 
+static void updateLifeInterval(NODEPTR p) {
+  p->start = InstIdx[p->inst];
+  p->end = 0;
+
+  for (int i = 0; i < p->inst->getNumOperands(); ++i)
+  {
+    if (isa<Constant>(p->inst->getOperand(0)))
+      continue;
+
+    Instruction* opinst = dyn_cast<Instruction>(p->inst->getOperand(i));
+    if (nodes.find(opinst) != nodes.end())
+      nodes[opinst]->end = p->start;
+    if (roots.find(opinst) != roots.end())
+      roots[opinst]->end = p->start;
+  }
+}
+#endif
