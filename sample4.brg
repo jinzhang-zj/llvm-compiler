@@ -16,10 +16,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <unordered_set>
+#include <sstream>
 enum {
   LOADI=1, STOREI=2, CNSTT=3, ADDI1=4,
   ADDI2=5, STOREI2=10, GLOBI=51,
-  COPYI=6, ADDRLP=7, ASGNI=8, MEM=9
+  COPYI=6, ADDRLP=7, ASGNI=8, MEM=9,
+  ICMPI=111, JUMPI=112, UJUMPI=113
 };
 
 typedef struct tree {
@@ -73,12 +75,15 @@ std::map<Instruction*, int> SymTable;	// Instruction and offset in stack
 std::map<Instruction*, int> InstIdx;	// Instruction and its number
 std::map<Instruction*, std::string> RegTable;  // Instruction and register
 std::map<std::string, Instruction*> InsTable;  // Register and instruction
+std::map<Value*, std::string> labelTable;  // Instruction and label
 
-int offCount = 0;	// Global value for offset count
+int labelCount = 0;
+
+int offCount = -8;	// Global value for offset count
 static int getNexOff()
 {
-  offCount += 8;
-  return offCount - 8;
+  offCount -= 8;
+  return offCount + 8;
 }
 
 // Expire the old register that's not useful
@@ -117,7 +122,7 @@ static std::string spillAtInterval(Instruction *inst)
   int offset = getNexOff();
   RegTable[maxIns] = std::to_string(offset) + "(%rbp)";
   InsTable.erase(reg);
-  std::cout << "movq(spill) " << RegTable[maxIns] << ", " << reg << "\n";
+  std::cout << "\tmovq " << reg << ", " << RegTable[maxIns] << "\n";
   return reg;
 }
 
@@ -146,22 +151,23 @@ static std::string getNexReg(Instruction *inst) {
 std::string binop(Instruction *inst)
 {
   switch (inst->getOpcode()) {
-    case Instruction::Add : return "addq ";
-    case Instruction::Sub : return "subq ";
-    case Instruction::Mul : return "mulq ";
+    case Instruction::Add : return "\taddq ";
+    case Instruction::Sub : return "\tsubq ";
+    case Instruction::Mul : return "\tmulq ";
     case Instruction::UDiv : 
-    case Instruction::SDiv : return "divq ";
-    case Instruction::And : return "andq ";
-    case Instruction::Or :  return "orq ";
-    case Instruction::Xor :  return "xorq ";
-    default: return "unknown ";
+    case Instruction::SDiv : return "\tdivq ";
+    case Instruction::And : return "\tandq ";
+    case Instruction::Or :  return "\torq ";
+    case Instruction::Xor :  return "\txorq ";
+    default: return "\tunknown ";
   }
 }
 
 %}
 %term BURP=0 LOADI=1 STOREI=2 CNSTT=3
 %term ADDI1=4 ADDI2=5 COPYI=6 ADDRLP=7 
-%term ASGNI=8 MEM=9 STOREI2=10 RETI=99
+%term ASGNI=8 MEM=9 STOREI2=10 RETI=11
+%term ICMPI=111 JUMPI=112 UJUMPI=113
 %term GLOBI=51
 %declare<std::string> stmt<int indent>;
 %declare<std::string> reg<int indent>;
@@ -183,9 +189,27 @@ stmt:	STOREI(disp,rc)
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
-		std::cout << "movq(store) " + $action[2](indent+1) + ", " + $action[3](indent+1) + "\n";
+		std::cout << "\tmovq " + $action[3](indent+1) + ", " + $action[2](indent+1) + "\n";
 		return "";
 	};
+
+
+reg:	ICMPI(reg,rc)
+	{ $cost[0].cost=$cost[2].cost+$cost[3].cost+1; }
+	= {
+		int i;
+                NODEPTR cur = _s->node;
+
+		for (i = 0; i < indent; i++)
+			std::cerr << " ";
+		std::cerr << burm_string[_ern] << "\n";
+                std::string reg1 = $action[2](indent+1);
+                std::cout << "cmp " + reg1 +  ", " + $action[3](indent+1) + "\n";
+                RegTable[cur->inst] = reg1;
+                return reg1;
+	};
+
+
 
 stmt:	STOREI(reg,rc)
 	{ $cost[0].cost=$cost[2].cost+$cost[3].cost+1; }
@@ -194,7 +218,7 @@ stmt:	STOREI(reg,rc)
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
-		std::cout << "movq (" + $action[2](indent+1) + "), " + $action[3](indent+1) + "\n";
+		std::cout << "\tmovq" + $action[3](indent+1) + ", (" + $action[2](indent+1) + ")\n";
 		return "";
 	};
 
@@ -208,10 +232,69 @@ stmt:	STOREI2(disp,disp)
                 std::string reg1 = getNexReg(_s->node->inst);
 		RegTable[_s->node->inst] = reg1;
                 InsTable[reg1] = _s->node->inst;
-                std::cout << "leaq " << reg1 << ", " << $action[3](indent+1) << "\n";
-		std::cout << "movq(store2) " + $action[2](indent+1) + ", " + reg1 + "\n";
+                std::cout << "\tleaq " << $action[3](indent+1) << ", " << reg1 << "\n";
+		std::cout << "\tmovq " + reg1 + ", " + $action[2](indent+1) + "\n";
 		return "";
 	};
+
+
+
+stmt:  	UJUMPI
+	{ $cost[0].cost=1;}
+	={
+		int i;
+		for (i = 0; i < indent; i++)
+			std::cerr << " ";
+		std::cerr << burm_string[_ern] << "\n";
+		NODEPTR cur = _s->node;
+		std::cout << "jmp " + labelTable[cur->inst->getOperand(0)] + "\n"; 
+                return "";
+	};
+
+stmt: 	JUMPI(rc)
+	{ $cost[0].cost=$cost[2].cost+1;}
+	={
+		int i;
+		for (i = 0; i < indent; i++)
+			std::cerr << " ";
+		std::cerr << burm_string[_ern] << "\n";
+                std::string reg1 = $action[2](indent+1);
+		
+                NODEPTR cur = _s->node;
+		NODEPTR child = cur->kids[0];
+		int opr= (dyn_cast<CmpInst>(child->inst))->getPredicate();
+		
+		std::string x86opr = "";
+
+                if (opr == 32)
+                        x86opr = "je ";
+                else if (opr == 33)
+                        x86opr = "jne ";
+                else if (opr == 34)
+                        x86opr = "ja ";
+               	else if (opr == 35)
+                        x86opr = "jae ";
+                else if (opr == 36)
+                        x86opr = "jb ";
+                else if (opr == 37)
+                        x86opr = "jbe ";
+                else if (opr == 38)
+                        x86opr = "jg ";
+                else if (opr == 39)
+                        x86opr = "jge ";
+                else if (opr == 40)
+                        x86opr = "jl ";
+                else if (opr == 41)
+                        x86opr = "jle ";
+
+		std::cout << x86opr + labelTable[cur->inst->getOperand(1)] + "\n";
+		std::cout << "jmp " + labelTable[cur->inst->getOperand(2)] + "\n"; 
+                return "";
+
+	};
+
+
+
 
 stmt:	reg
 	{ $cost[0].cost=$cost[1].cost; }
@@ -232,10 +315,10 @@ reg:	COPYI
 		std::cerr << burm_string[_ern] << "\n";
                 std::string reg1 = getNexReg(_s->node->inst);
                 if (reg1.compare(RegTable[_s->node->inst]) != 0)
-                  std::cout << "movq(copy) " + reg1 + ", " + RegTable[_s->node->inst] + "\n";
+                  std::cout << "\tmovq " + RegTable[_s->node->inst] + ", " + reg1 + "\n";
                 if (RegTable[_s->node->inst][0] != '%')
                 {
-                  errs() << "copy updating " << *(_s->node->inst) << " to " << reg1 << "\n";
+                  //errs() << "copy updating " << *(_s->node->inst) << " to " << reg1 << "\n";
                   RegTable[_s->node->inst] = reg1;
                   InsTable[reg1] = _s->node->inst;
                 }
@@ -251,7 +334,7 @@ reg:	ADDI1(reg,rc)
 		std::cerr << burm_string[_ern] << "\n";
                 std::string reg1 = $action[2](indent+1);
                 NODEPTR cur = _s->node;
-                std::cout << binop(cur->inst) + reg1 +  ", " + $action[3](indent+1) + "\n";
+                std::cout << binop(cur->inst) + $action[3](indent+1) + ", " + reg1 + "\n";
                 RegTable[cur->inst] = reg1;
                 InsTable[reg1] = cur->inst;
                 return reg1;
@@ -276,13 +359,13 @@ reg:	LOADI
 		  inst->print(rso);
 		  rso.flush();
     		  int idx = str.find_first_of(' ');
-		  std::cout << "movq(load) " + reg1 + ", " + str.substr(1, idx -1) + "(%rip)\n";
+		  std::cout << "\tmovq " + str.substr(1, idx -1) + "(%rip), " + reg1 + "\n";
                 }
 		else
 		{
                   Instruction *inst = dyn_cast<Instruction>(cur->inst->getOperand(0));
                   int offset = SymTable[inst];
-                  std::cout << "movq(load) " + reg1 + ", " + std::to_string(offset) + "(%rbp)\n";
+                  std::cout << "\tmovq " + std::to_string(offset) + "(%rbp), " + reg1 + "\n";
 		}
                 return reg1;
 	};
@@ -319,7 +402,7 @@ disp:	ADDI1(reg,rc)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
                 std::string reg1 = $action[2](indent+1);
-                std::cout << "addq " + reg1 +  ", " + $action[3](indent+1) + "\n";
+                std::cout << binop(_s->node->inst) + $action[3](indent+1) + ", " + reg1 + "\n";
                 NODEPTR cur = _s->node;
                 RegTable[cur->inst] = reg1;
                 return reg1;
@@ -399,7 +482,10 @@ static void updateLifeInterval(NODEPTR p) {
 
   for (int i = 0; i < p->inst->getNumOperands(); ++i)
   {
-    if (isa<Constant>(p->inst->getOperand(0)))
+    if (isa<Constant>(p->inst->getOperand(i)))
+      continue;
+
+    if (!isa<Instruction>(p->inst->getOperand(i)))
       continue;
 
     Instruction* opinst = dyn_cast<Instruction>(p->inst->getOperand(i));
@@ -413,26 +499,57 @@ static void updateLifeInterval(NODEPTR p) {
 // Generate the layout for all global data
 static void GlobalLayOut()
 {
+  bool flag = true;
+  std::vector<Instruction*> cvec;
+
+  std::cout << "\n";
   for (auto inst : gvec)
   {
-    std::cout << "\n";
     std::string str;
     llvm::raw_string_ostream rso(str);
     inst->print(rso);
     rso.flush();
-    int idx = str.find_first_of(' ');
-    std::string var = str.substr(1, idx - 1);
+
+    std::stringstream ss(str);
+    std::string var;
+    std::string tmp;
+    std::string ope;
+    ss >> var >> tmp >> ope;
+    if (ope.compare("common") == 0)
+    {
+      cvec.push_back(inst);
+      continue;
+    }
+
+    var.erase(var.begin());
     Constant* cnst = dyn_cast<Constant>(inst->getOperand(0));
     int val = cnst->getUniqueInteger().getSExtValue();
     std::cout << "\t.type\t" << var << ",@object\n";
-    std::cout << "\t.data\n";
+    if (flag)
+    {
+      std::cout << "\t.data\n";
+      flag = false;
+    }
     std::cout << "\t.global\t" << var << "\n";
     std::cout << "\t.align\t" << "8\n";
     std::cout << var << ":\n";
-    std::cout << "\t.long\t" << val << "\n";
-    std::cout << "\t.size\t" << var << ", 8\n";
+    std::cout << "\t.quad\t" << val << "\n";
+    std::cout << "\t.size\t" << var << ", 8\n\n";
   }
 
-
+  for (auto inst : cvec)
+  {
+    std::string str;
+    llvm::raw_string_ostream rso(str);
+    inst->print(rso);
+    rso.flush();
+    
+    std::stringstream ss(str);
+    std::string var;
+    ss >> var;
+    var.erase(var.begin());
+    std::cout << "\t.type\t" << var << ",@object\n";
+    std::cout << "\t.comm\t" << var << ",8,8\n";
+  }
 
 }

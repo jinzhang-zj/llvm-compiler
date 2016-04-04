@@ -269,7 +269,7 @@ bool setTreeNode(Tree t, Instruction* inst) {
     Tree child1 = (Tree) malloc(sizeof *child1);
 
     Instruction* kidinst0 = dyn_cast<Instruction>(inst->getOperand(0));  
-    Instruction* kidinst1 = dyn_cast<Instruction>(inst->getOperand(1));
+    //Instruction* kidinst1 = dyn_cast<Instruction>(inst->getOperand(1));
     //errs() << "Child 1 type " << *(inst->getOperand(1)->getType()) << "\n";
     // Computing the left child of store node
     if(isa<Constant>(inst->getOperand(0))) {
@@ -327,9 +327,85 @@ bool setTreeNode(Tree t, Instruction* inst) {
     break;
   }
 
+  case Instruction::Br: {
+    
+    if(dyn_cast<BranchInst>(inst)->isUnconditional()) {
+      t->op = UJUMPI;
+      t->inst = inst;
+      t->num_kids = 0;
+      labelTable.insert( std::make_pair(inst->getOperand(0), std::to_string(labelCount++)) );
+      return true;
+    }
+    
+    t->op = JUMPI;
+    t->inst = inst;
+    t->num_kids = 1;
+    labelTable.insert( std::make_pair(inst->getOperand(1), std::to_string(labelCount++)) );
+    labelTable.insert( std::make_pair(inst->getOperand(2), std::to_string(labelCount++)) );
+
+    Instruction* operand = dyn_cast<Instruction>(inst->getOperand(0));
+
+    if(isa<Constant>(inst->getOperand(0))) {
+      t->kids[0] = makeConstantNode(inst, 0);
+    }
+
+    if(roots.find(operand) != roots.end()) {
+      t->kids[0] = makeCopyNode(operand);
+    }
+      
+    // If it not a root, we can simply locate it in nodes map
+    // and make it the child
+    else if (nodes.find(operand) != nodes.end()){
+      t->kids[0] = nodes[operand];
+    } 
+    break;
+  }
+
+  case Instruction::ICmp: {
+
+    t->op = ICMPI;
+    
+    t->inst = inst;
+    t->num_kids = 2;
+    
+    
+    for(int b=0; b < 2; b++ ) {
+      Instruction* operand = dyn_cast<Instruction>(inst->getOperand(b));
+      
+      if(isa<Constant>(inst->getOperand(b))) {
+	t->kids[b] = makeConstantNode(inst, b);
+       
+      }
+      
+      // NOTE Do we need to do any error checking?
+
+      // else if(nodes.find(operand) == nodes.end()) {
+      // 	errs() << "Operand " << operand << "is undefined \n";
+      // 	return false;
+      // }
+      
+      // If this operand is a root, we will create a copy node
+      else if(roots.find(operand) != roots.end()) {
+	errs() << "Reached ICMPI constant part\n";
+	t->kids[b] = makeCopyNode(operand);
+      }
+      
+      // If it not a root, we can simply locate it in nodes map
+      // and make it the child
+      else {
+	t->kids[b] = nodes[operand];
+      }
+
+    }
+    break;
+  }
+
     // Binary operator instruction
   case Instruction::Add: 
+  case Instruction::Sub: 
   case Instruction::Mul: 
+  case Instruction::UDiv: 
+  case Instruction::SDiv: 
   case Instruction::And: 
   case Instruction::Or: 
   case Instruction::Xor: 
@@ -511,6 +587,11 @@ int main(int argc, char **argv) {
 	
 	// If inst_itr is a store instruction, we make it a root node
 	if(inst_itr->getOpcode() == Instruction::Store) {
+	  roots.insert(std::make_pair(inst_itr, t) );
+          rootKeys.push_back(t);
+	}
+
+	if(inst_itr->getOpcode() == Instruction::Br) {
 	  roots.insert(std::make_pair(inst_itr, t) );
           rootKeys.push_back(t);
 	}
