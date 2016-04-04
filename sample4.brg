@@ -68,7 +68,7 @@ std::vector<Tree> rootKeys;
 std::unordered_set<std::string> pools;			// active pool of registers
 std::map<Instruction*, Tree> roots;
 std::map<Instruction*, Tree> nodes;
-std::map<Instruction*, Tree> gvars;	// Global variables
+std::vector<Instruction*> gvec;
 std::map<Instruction*, int> SymTable;	// Instruction and offset in stack
 std::map<Instruction*, int> InstIdx;	// Instruction and its number
 std::map<Instruction*, std::string> RegTable;  // Instruction and register
@@ -406,4 +406,30 @@ static void updateLifeInterval(NODEPTR p) {
     if (roots.find(opinst) != roots.end())
       roots[opinst]->end = p->start;
   }
+}
+
+// Generate the layout for all global data
+static void GlobalLayOut()
+{
+  for (auto inst : gvec)
+  {
+    std::cout << "\n";
+    std::string str;
+    llvm::raw_string_ostream rso(str);
+    inst->print(rso);
+    rso.flush();
+    std::string var = str.substr(1, 1);
+    Constant* cnst = dyn_cast<Constant>(inst->getOperand(0));
+    int val = cnst->getUniqueInteger().getSExtValue();
+    std::cout << "\t.type\t" << var << ",@object\n";
+    std::cout << "\t.data\n";
+    std::cout << "\t.global\t" << var << "\n";
+    std::cout << "\t.align\t" << "8\n";
+    std::cout << var << ":\n";
+    std::cout << "\t.long\t" << val << "\n";
+    std::cout << "\t.size\t" << var << ", 8\n";
+  }
+
+
+
 }

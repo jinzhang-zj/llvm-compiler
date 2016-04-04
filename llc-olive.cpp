@@ -314,9 +314,7 @@ bool setTreeNode(Tree t, Instruction* inst) {
     // As a result, this variable has not been defined before  
     free (child1);
     child1 = makeAddressNode(inst, 1);
-    if (child1->inst_num == -2 && gvars.find(child1->inst) == gvars.end())
-      gvars.insert ( std::make_pair(child1->inst, child1));
-      
+
     // NOTE This part is a bit strange. The left child must be kids[1], and the right child is kids[0].
     // This is due to our grammar, which has the address on left and register on right.
     // However, in llvm, the address operand is the second operand, the register is the first.
@@ -462,6 +460,13 @@ int main(int argc, char **argv) {
 	errs() << "\n";
 	
 	// Update symbol table --- not sure where this instruction should come
+	// Update Global data
+	if(strcmp(inst_itr->getOpcodeName(), "load") == 0 && isa<GlobalValue>(inst_itr->getOperand(0)))
+        {
+          Instruction *inst = (Instruction *) inst_itr->getOperand(0);
+          gvec.push_back(inst);
+        }
+
 
 	// If instruction is an alloca, then we only need to update the symbol table. 
 	if(strcmp(inst_itr->getOpcodeName(), "alloca") == 0)
@@ -469,6 +474,7 @@ int main(int argc, char **argv) {
 	  updateSymTable(inst_itr);
           continue;
 	}
+
 
 	if(strcmp(inst_itr->getOpcodeName(), "ret") == 0)
 	  continue;
@@ -525,7 +531,7 @@ int main(int argc, char **argv) {
     gen(t);
     }
   
-
+  GlobalLayOut();
   errs() << "Nodes corresponding to program instructions: \n"; 
   //printNodes();
 
