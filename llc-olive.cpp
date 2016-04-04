@@ -327,8 +327,13 @@ bool setTreeNode(Tree t, Instruction* inst) {
     break;
   }
 
-    // Add instruction
-  case Instruction::Add: {
+    // Binary operator instruction
+  case Instruction::Add: 
+  case Instruction::Mul: 
+  case Instruction::And: 
+  case Instruction::Or: 
+  case Instruction::Xor: 
+  {
     t->op = ADDI1;
     t->inst = inst;
     t->num_kids = 2;
@@ -466,7 +471,6 @@ int main(int argc, char **argv) {
           Instruction *inst = (Instruction *) inst_itr->getOperand(0);
           gvec.push_back(inst);
         }
-
 
 	// If instruction is an alloca, then we only need to update the symbol table. 
 	if(strcmp(inst_itr->getOpcodeName(), "alloca") == 0)

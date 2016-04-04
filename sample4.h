@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unordered_set>
+#include <sstream>
 enum {
   LOADI=1, STOREI=2, CNSTT=3, ADDI1=4,
   ADDI2=5, STOREI2=10, GLOBI=51,
@@ -79,11 +80,11 @@ std::map<Instruction*, int> InstIdx;	// Instruction and its number
 std::map<Instruction*, std::string> RegTable;  // Instruction and register
 std::map<std::string, Instruction*> InsTable;  // Register and instruction
 
-int offCount = 0;	// Global value for offset count
+int offCount = -8;	// Global value for offset count
 static int getNexOff()
 {
-  offCount += 8;
-  return offCount - 8;
+  offCount -= 8;
+  return offCount + 8;
 }
 
 // Expire the old register that's not useful
@@ -122,7 +123,7 @@ static std::string spillAtInterval(Instruction *inst)
   int offset = getNexOff();
   RegTable[maxIns] = std::to_string(offset) + "(%rbp)";
   InsTable.erase(reg);
-  std::cout << "movq(spill) " << RegTable[maxIns] << ", " << reg << "\n";
+  std::cout << "\tmovq " << RegTable[maxIns] << ", " << reg << "\n";
   return reg;
 }
 
@@ -358,20 +359,20 @@ int burm_file_numbers[] = {
 };
 
 int burm_line_numbers[] = {
-  /* 0 */  174,
-  /* 1 */  181,
-  /* 2 */  192,
-  /* 3 */  203,
-  /* 4 */  218,
-  /* 5 */  228,
-  /* 6 */  247,
-  /* 7 */  262,
-  /* 8 */  292,
-  /* 9 */  316,
-  /* 10 */  330,
-  /* 11 */  346,
-  /* 12 */  356,
-  /* 13 */  366,
+  /* 0 */  175,
+  /* 1 */  182,
+  /* 2 */  193,
+  /* 3 */  204,
+  /* 4 */  219,
+  /* 5 */  229,
+  /* 6 */  248,
+  /* 7 */  263,
+  /* 8 */  293,
+  /* 9 */  317,
+  /* 10 */  331,
+  /* 11 */  347,
+  /* 12 */  357,
+  /* 13 */  367,
 };
 
 #pragma GCC diagnostic push
@@ -655,7 +656,7 @@ int indent)
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
-		std::cout << "movq(store) " + disp_action(_s->kids[0],indent+1) + ", " + rc_action(_s->kids[1],indent+1) + "\n";
+		std::cout << "\tmovq " + disp_action(_s->kids[0],indent+1) + ", " + rc_action(_s->kids[1],indent+1) + "\n";
 		return "";
 	
 }
@@ -669,7 +670,7 @@ int indent)
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
-		std::cout << "movq (" + reg_action(_s->kids[0],indent+1) + "), " + rc_action(_s->kids[1],indent+1) + "\n";
+		std::cout << "\tmovq (" + reg_action(_s->kids[0],indent+1) + "), " + rc_action(_s->kids[1],indent+1) + "\n";
 		return "";
 	
 }
@@ -686,8 +687,8 @@ int indent)
                 std::string reg1 = getNexReg(_s->node->inst);
 		RegTable[_s->node->inst] = reg1;
                 InsTable[reg1] = _s->node->inst;
-                std::cout << "leaq " << reg1 << ", " << disp_action(_s->kids[1],indent+1) << "\n";
-		std::cout << "movq(store2) " + disp_action(_s->kids[0],indent+1) + ", " + reg1 + "\n";
+                std::cout << "\tleaq " << reg1 << ", " << disp_action(_s->kids[1],indent+1) << "\n";
+		std::cout << "\tmovq " + disp_action(_s->kids[0],indent+1) + ", " + reg1 + "\n";
 		return "";
 	
 }
@@ -730,7 +731,7 @@ int indent)
 		std::cerr << burm_string[_ern] << "\n";
                 std::string reg1 = getNexReg(_s->node->inst);
                 if (reg1.compare(RegTable[_s->node->inst]) != 0)
-                  std::cout << "movq(copy) " + reg1 + ", " + RegTable[_s->node->inst] + "\n";
+                  std::cout << "\tmovq " + reg1 + ", " + RegTable[_s->node->inst] + "\n";
                 if (RegTable[_s->node->inst][0] != '%')
                 {
                   errs() << "copy updating " << *(_s->node->inst) << " to " << reg1 << "\n";
@@ -780,13 +781,13 @@ int indent)
 		  inst->print(rso);
 		  rso.flush();
     		  int idx = str.find_first_of(' ');
-		  std::cout << "movq(load) " + reg1 + ", " + str.substr(1, idx -1) + "(%rip)\n";
+		  std::cout << "\tmovq " + reg1 + ", " + str.substr(1, idx -1) + "(%rip)\n";
                 }
 		else
 		{
                   Instruction *inst = dyn_cast<Instruction>(cur->inst->getOperand(0));
                   int offset = SymTable[inst];
-                  std::cout << "movq(load) " + reg1 + ", " + std::to_string(offset) + "(%rbp)\n";
+                  std::cout << "\tmovq " + reg1 + ", " + std::to_string(offset) + "(%rbp)\n";
 		}
                 return reg1;
 	
@@ -1321,7 +1322,7 @@ static void updateLifeInterval(NODEPTR p) {
 
   for (int i = 0; i < p->inst->getNumOperands(); ++i)
   {
-    if (isa<Constant>(p->inst->getOperand(0)))
+    if (isa<Constant>(p->inst->getOperand(i)))
       continue;
 
     Instruction* opinst = dyn_cast<Instruction>(p->inst->getOperand(i));
@@ -1335,27 +1336,58 @@ static void updateLifeInterval(NODEPTR p) {
 // Generate the layout for all global data
 static void GlobalLayOut()
 {
+  bool flag = true;
+  std::vector<Instruction*> cvec;
+
+  std::cout << "\n";
   for (auto inst : gvec)
   {
-    std::cout << "\n";
     std::string str;
     llvm::raw_string_ostream rso(str);
     inst->print(rso);
     rso.flush();
-    int idx = str.find_first_of(' ');
-    std::string var = str.substr(1, idx - 1);
+
+    std::stringstream ss(str);
+    std::string var;
+    std::string tmp;
+    std::string ope;
+    ss >> var >> tmp >> ope;
+    if (ope.compare("common") == 0)
+    {
+      cvec.push_back(inst);
+      continue;
+    }
+
+    var.erase(var.begin());
     Constant* cnst = dyn_cast<Constant>(inst->getOperand(0));
     int val = cnst->getUniqueInteger().getSExtValue();
     std::cout << "\t.type\t" << var << ",@object\n";
-    std::cout << "\t.data\n";
+    if (flag)
+    {
+      std::cout << "\t.data\n";
+      flag = false;
+    }
     std::cout << "\t.global\t" << var << "\n";
     std::cout << "\t.align\t" << "8\n";
     std::cout << var << ":\n";
-    std::cout << "\t.long\t" << val << "\n";
-    std::cout << "\t.size\t" << var << ", 8\n";
+    std::cout << "\t.quad\t" << val << "\n";
+    std::cout << "\t.size\t" << var << ", 8\n\n";
   }
 
-
+  for (auto inst : cvec)
+  {
+    std::string str;
+    llvm::raw_string_ostream rso(str);
+    inst->print(rso);
+    rso.flush();
+    
+    std::stringstream ss(str);
+    std::string var;
+    ss >> var;
+    var.erase(var.begin());
+    std::cout << "\t.type\t" << var << ",@object\n";
+    std::cout << "\t.comm\t" << var << ",8,8\n";
+  }
 
 }
 #endif
