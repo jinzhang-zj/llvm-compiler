@@ -208,18 +208,35 @@ Tree makeCopyNode(Instruction* inst) {
   return child;
 }
 
-
+Tree makeGlobalNode(Instruction* inst) {
+  Tree child = (Tree) malloc(sizeof *child);
+  child->num_kids = 0;
+  child->op = GLOBI; 
+  child->inst = inst;
+  child->inst_num = -1;
+  return child;
+}
 
 Tree makeAddressNode(Instruction* inst, int idx) {
   Tree child = (Tree) malloc(sizeof *child);
   child->num_kids = 0;
-  Instruction *opinst = dyn_cast<Instruction>(inst->getOperand(idx));
+  Instruction *opinst;
+  if (isa<GlobalValue>(inst->getOperand(idx)))
+  {
+    opinst = (Instruction *)(inst->getOperand(idx));
+    child->op = GLOBI;
+    child->inst = opinst;
+    child->inst_num = -2;
+    return child;
+  }
+
+  opinst = dyn_cast<Instruction>(inst->getOperand(idx));
   if(strcmp(opinst->getOpcodeName(), "alloca") == 0)
   {
     child->op = ADDRLP;
     child->inst = inst;
   }
-  else //(strcmp(opinst->getOpcodeName(), "load") == 0)
+  else 
   {
     child->op = LOADI;
     child->inst = opinst;
@@ -296,11 +313,9 @@ bool setTreeNode(Tree t, Instruction* inst) {
     // This is because the IR is in SSA form
     // As a result, this variable has not been defined before  
     free (child1);
-    //std::string s = *(inst->getOperand(1)->getType()); 
-    //if (s.compare("int32*") == 0)
-      child1 = makeAddressNode(inst, 1);
-    //else if (s.compare("int32**")==0)
-      //child1 = makeAddressNode(kidinst1);
+    child1 = makeAddressNode(inst, 1);
+    if (child1->inst_num == -2 && gvars.find(child1->inst) == gvars.end())
+      gvars.insert ( std::make_pair(child1->inst, child1));
       
     // NOTE This part is a bit strange. The left child must be kids[1], and the right child is kids[0].
     // This is due to our grammar, which has the address on left and register on right.
@@ -425,7 +440,7 @@ int main(int argc, char **argv) {
 	count ++;
 
         // Assign order to each instruction for calculation of life time interval
-        InstIdx.insert( make_pair(inst_itr, count));
+        InstIdx.insert( std::make_pair(inst_itr, count));
 
 	errs() << "Instruction  " << count << ": " << *inst_itr << " has " << inst_itr->getNumOperands() << " operands : ";
 	for(unsigned int i=0; i < inst_itr->getNumOperands(); i++) {
@@ -433,6 +448,16 @@ int main(int argc, char **argv) {
 	    errs() << dyn_cast<Constant>(inst_itr->getOperand(i))<<" ";
 	  else 
 	    errs() << dyn_cast<Instruction>(inst_itr->getOperand(i)) <<" ";
+
+        /*  if(isa<GlobalValue>(inst_itr->getOperand(i))) {
+            Instruction *inst = (Instruction *)inst_itr->getOperand(i);
+            if (gvars.find(inst) == gvars.end())
+            {
+              Tree t = makeGlobalNode(inst);
+              gvars.insert( std::make_pair(inst, t));
+            }
+            //errs() << "Instruction " << *inst << " global opcode name " << *(inst->getOperand(0)) << "\n";
+          }*/
 	}
 	errs() << "\n";
 	

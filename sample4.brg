@@ -18,7 +18,7 @@
 #include <unordered_set>
 enum {
   LOADI=1, STOREI=2, CNSTT=3, ADDI1=4,
-  ADDI2=5, STOREI2=10,
+  ADDI2=5, STOREI2=10, GLOBI=51,
   COPYI=6, ADDRLP=7, ASGNI=8, MEM=9
 };
 
@@ -68,6 +68,7 @@ std::vector<Tree> rootKeys;
 std::unordered_set<std::string> pools;			// active pool of registers
 std::map<Instruction*, Tree> roots;
 std::map<Instruction*, Tree> nodes;
+std::map<Instruction*, Tree> gvars;	// Global variables
 std::map<Instruction*, int> SymTable;	// Instruction and offset in stack
 std::map<Instruction*, int> InstIdx;	// Instruction and its number
 std::map<Instruction*, std::string> RegTable;  // Instruction and register
@@ -161,6 +162,7 @@ std::string binop(Instruction *inst)
 %term BURP=0 LOADI=1 STOREI=2 CNSTT=3
 %term ADDI1=4 ADDI2=5 COPYI=6 ADDRLP=7 
 %term ASGNI=8 MEM=9 STOREI2=10 RETI=99
+%term GLOBI=51
 %declare<std::string> stmt<int indent>;
 %declare<std::string> reg<int indent>;
 %declare<std::string> disp<int indent>;
@@ -266,9 +268,21 @@ reg:	LOADI
 		RegTable[_s->node->inst] = reg1;
                 InsTable[reg1] = _s->node->inst;
                 NODEPTR cur = _s->node;
-                Instruction *inst = dyn_cast<Instruction>(cur->inst->getOperand(0));
-                int offset = SymTable[inst];
-                std::cout << "movq(load) " + reg1 + ", " + std::to_string(offset) + "(%rbp)\n";
+                if (isa<GlobalValue>(cur->inst->getOperand(0)))
+                {
+		  Instruction *inst = (Instruction *) (cur->inst->getOperand(0));
+		  std::string str;
+		  llvm::raw_string_ostream rso(str);
+		  inst->print(rso);
+		  rso.flush();
+		  std::cout << "movq(load) " + reg1 + ", " + str.substr(1, 1) + "(%rip)\n";
+                }
+		else
+		{
+                  Instruction *inst = dyn_cast<Instruction>(cur->inst->getOperand(0));
+                  int offset = SymTable[inst];
+                  std::cout << "movq(load) " + reg1 + ", " + std::to_string(offset) + "(%rbp)\n";
+		}
                 return reg1;
 	};
 
@@ -310,6 +324,20 @@ disp:	ADDI1(reg,rc)
                 return reg1;
 	};
 
+disp:	GLOBI
+	{ $cost[0].cost=0; }
+	= {
+		int i;
+		for (i = 0; i < indent; i++)
+			std::cerr << " ";
+		std::cerr << burm_string[_ern] << "\n";
+		std::string str;
+		llvm::raw_string_ostream rso(str);
+		_s->node->inst->print(rso);
+		rso.flush();
+		std::string rip = "(%rip)";
+		return str.substr(1,1) + rip;
+	};
 
 rc:	con
 	{ $cost[0].cost=$cost[1].cost; }

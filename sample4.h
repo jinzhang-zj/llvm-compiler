@@ -23,7 +23,7 @@
 #include <unordered_set>
 enum {
   LOADI=1, STOREI=2, CNSTT=3, ADDI1=4,
-  ADDI2=5, STOREI2=10,
+  ADDI2=5, STOREI2=10, GLOBI=51,
   COPYI=6, ADDRLP=7, ASGNI=8, MEM=9
 };
 
@@ -73,6 +73,7 @@ std::vector<Tree> rootKeys;
 std::unordered_set<std::string> pools;			// active pool of registers
 std::map<Instruction*, Tree> roots;
 std::map<Instruction*, Tree> nodes;
+std::map<Instruction*, Tree> gvars;	// Global variables
 std::map<Instruction*, int> SymTable;	// Instruction and offset in stack
 std::map<Instruction*, int> InstIdx;	// Instruction and its number
 std::map<Instruction*, std::string> RegTable;  // Instruction and register
@@ -174,6 +175,7 @@ std::string binop(Instruction *inst)
 #define MEM 9
 #define STOREI2 10
 #define RETI 11
+#define GLOBI 12
 
 struct burm_state {
   int op;
@@ -277,9 +279,10 @@ short *burm_nts[] = {
   burm_nts_5,  /* 7 */
   burm_nts_5,  /* 8 */
   burm_nts_2,  /* 9 */
-  burm_nts_6,  /* 10 */
-  burm_nts_4,  /* 11 */
-  burm_nts_5,  /* 12 */
+  burm_nts_5,  /* 10 */
+  burm_nts_6,  /* 11 */
+  burm_nts_4,  /* 12 */
+  burm_nts_5,  /* 13 */
 };
 
 char burm_arity[] = {
@@ -295,6 +298,7 @@ char burm_arity[] = {
   0,  /* 9=MEM */
   2,  /* 10=STOREI2 */
   0,  /* 11=RETI */
+  0,  /* 12=GLOBI */
 };
 
 std::string burm_opname[] = {
@@ -310,6 +314,7 @@ std::string burm_opname[] = {
   /* 9 */  "MEM",
   /* 10 */  "STOREI2",
   /* 11 */  "RETI",
+  /* 12 */  "GLOBI",
 };
 
 
@@ -324,9 +329,10 @@ std::string burm_string[] = {
   /* 7 */  "reg: LOADI",
   /* 8 */  "disp: ADDRLP",
   /* 9 */  "disp: ADDI1(reg,rc)",
-  /* 10 */  "rc: con",
-  /* 11 */  "rc: reg",
-  /* 12 */  "con: CNSTT",
+  /* 10 */  "disp: GLOBI",
+  /* 11 */  "rc: con",
+  /* 12 */  "rc: reg",
+  /* 13 */  "con: CNSTT",
 };
 
 
@@ -348,22 +354,24 @@ int burm_file_numbers[] = {
   /* 10 */  0,
   /* 11 */  0,
   /* 12 */  0,
+  /* 13 */  0,
 };
 
 int burm_line_numbers[] = {
-  /* 0 */  172,
-  /* 1 */  179,
-  /* 2 */  190,
-  /* 3 */  201,
-  /* 4 */  216,
-  /* 5 */  226,
-  /* 6 */  245,
-  /* 7 */  260,
-  /* 8 */  277,
-  /* 9 */  301,
-  /* 10 */  316,
-  /* 11 */  326,
-  /* 12 */  336,
+  /* 0 */  174,
+  /* 1 */  181,
+  /* 2 */  192,
+  /* 3 */  203,
+  /* 4 */  218,
+  /* 5 */  228,
+  /* 6 */  247,
+  /* 7 */  262,
+  /* 8 */  291,
+  /* 9 */  315,
+  /* 10 */  329,
+  /* 11 */  344,
+  /* 12 */  354,
+  /* 13 */  364,
 };
 
 #pragma GCC diagnostic push
@@ -389,17 +397,18 @@ static short burm_decode_disp[] = {
    -1,
   8,
   9,
+  10,
 };
 
 static short burm_decode_rc[] = {
    -1,
-  10,
   11,
+  12,
 };
 
 static short burm_decode_con[] = {
    -1,
-  12,
+  13,
 };
 
 static short burm_decode__[] = {
@@ -517,17 +526,24 @@ int burm_cost_code(COST *_c, int _ern,struct burm_state *_s)
 {
 
 
- (*_c).cost=_s->cost[burm_con_NT].cost; 
+ (*_c).cost=0; 
 }
   break;
   case 11:
 {
 
 
- (*_c).cost=_s->cost[burm_reg_NT].cost; 
+ (*_c).cost=_s->cost[burm_con_NT].cost; 
 }
   break;
   case 12:
+{
+
+
+ (*_c).cost=_s->cost[burm_reg_NT].cost; 
+}
+  break;
+  case 13:
 {
 
 
@@ -756,9 +772,21 @@ int indent)
 		RegTable[_s->node->inst] = reg1;
                 InsTable[reg1] = _s->node->inst;
                 NODEPTR cur = _s->node;
-                Instruction *inst = dyn_cast<Instruction>(cur->inst->getOperand(0));
-                int offset = SymTable[inst];
-                std::cout << "movq(load) " + reg1 + ", " + std::to_string(offset) + "(%rbp)\n";
+                if (isa<GlobalValue>(cur->inst->getOperand(0)))
+                {
+		  Instruction *inst = (Instruction *) (cur->inst->getOperand(0));
+		  std::string str;
+		  llvm::raw_string_ostream rso(str);
+		  inst->print(rso);
+		  rso.flush();
+		  std::cout << "movq(load) " + reg1 + ", " + str.substr(1, 1) + "(%rip)\n";
+                }
+		else
+		{
+                  Instruction *inst = dyn_cast<Instruction>(cur->inst->getOperand(0));
+                  int offset = SymTable[inst];
+                  std::cout << "movq(load) " + reg1 + ", " + std::to_string(offset) + "(%rbp)\n";
+		}
                 return reg1;
 	
 }
@@ -821,6 +849,24 @@ int indent)
 	
 }
   break;
+  case 10:
+{
+
+
+
+		int i;
+		for (i = 0; i < indent; i++)
+			std::cerr << " ";
+		std::cerr << burm_string[_ern] << "\n";
+		std::string str;
+		llvm::raw_string_ostream rso(str);
+		_s->node->inst->print(rso);
+		rso.flush();
+		std::string rip = "(%rip)";
+		return str.substr(1,1) + rip;
+	
+}
+  break;
   }
 }
 
@@ -835,7 +881,7 @@ int indent)
   if(_s->rule.burm_rc==0)
     NO_ACTION(rc);
   switch(_ern){
-  case 10:
+  case 11:
 {
 
 
@@ -848,7 +894,7 @@ int indent)
 	
 }
   break;
-  case 11:
+  case 12:
 {
 
 
@@ -875,7 +921,7 @@ int indent)
   if(_s->rule.burm_con==0)
     NO_ACTION(con);
   switch(_ern){
-  case 12:
+  case 13:
 {
 
 
@@ -897,8 +943,8 @@ static void burm_closure_reg(struct burm_state *, COST);
 static void burm_closure_con(struct burm_state *, COST);
 
 static void burm_closure_reg(struct burm_state *s, COST c) {
-  if(burm_cost_code(&c,11,s) && COST_LESS(c,s->cost[burm_rc_NT])) {
-burm_trace(burm_np, 11, c);     s->cost[burm_rc_NT] = c ;
+  if(burm_cost_code(&c,12,s) && COST_LESS(c,s->cost[burm_rc_NT])) {
+burm_trace(burm_np, 12, c);     s->cost[burm_rc_NT] = c ;
     s->rule.burm_rc = 2;
   }
   if(burm_cost_code(&c,4,s) && COST_LESS(c,s->cost[burm_stmt_NT])) {
@@ -908,8 +954,8 @@ burm_trace(burm_np, 4, c);     s->cost[burm_stmt_NT] = c ;
 }
 
 static void burm_closure_con(struct burm_state *s, COST c) {
-  if(burm_cost_code(&c,10,s) && COST_LESS(c,s->cost[burm_rc_NT])) {
-burm_trace(burm_np, 10, c);     s->cost[burm_rc_NT] = c ;
+  if(burm_cost_code(&c,11,s) && COST_LESS(c,s->cost[burm_rc_NT])) {
+burm_trace(burm_np, 11, c);     s->cost[burm_rc_NT] = c ;
     s->rule.burm_rc = 1;
   }
 }
@@ -1018,8 +1064,8 @@ burm_trace(burm_np, 1, c);         s->cost[burm_stmt_NT] = c ;
     SET_STATE(u,s);
     k=0;
     {  		/* con: CNSTT */
-      if(burm_cost_code(&c,12,s) && COST_LESS(c,s->cost[burm_con_NT])) {
-burm_trace(burm_np, 12, c);         s->cost[burm_con_NT] = c ;
+      if(burm_cost_code(&c,13,s) && COST_LESS(c,s->cost[burm_con_NT])) {
+burm_trace(burm_np, 13, c);         s->cost[burm_con_NT] = c ;
         s->rule.burm_con = 1;
         burm_closure_con(s, c );
       }
@@ -1132,6 +1178,21 @@ burm_trace(burm_np, 3, c);         s->cost[burm_stmt_NT] = c ;
     for(i=0;i<arity;i++)
       k[i]=burm_label1(children[i]);
     break;
+  case 12:		/* GLOBI */
+#ifdef LEAF_TRAP
+    if(s=LEAF_TRAP(u,op))
+      return s;
+#endif
+    s=burm_alloc_state(u,op,arity);
+    SET_STATE(u,s);
+    k=0;
+    {  		/* disp: GLOBI */
+      if(burm_cost_code(&c,10,s) && COST_LESS(c,s->cost[burm_disp_NT])) {
+burm_trace(burm_np, 10, c);         s->cost[burm_disp_NT] = c ;
+        s->rule.burm_disp = 3;
+      }
+    }
+    break;
   default:
     burm_assert(0, PANIC("Bad operator %d in burm_state\n", op));
   }
@@ -1198,12 +1259,13 @@ NODEPTR *burm_kids(NODEPTR p, int eruleno, NODEPTR kids[]) {
     kids[0] = burm_child(p,0);
     kids[1] = burm_child(p,1);
     break;
-  case 11: /* rc: reg */
-  case 10: /* rc: con */
+  case 12: /* rc: reg */
+  case 11: /* rc: con */
   case 4: /* stmt: reg */
     kids[0] = p;
     break;
-  case 12: /* con: CNSTT */
+  case 13: /* con: CNSTT */
+  case 10: /* disp: GLOBI */
   case 8: /* disp: ADDRLP */
   case 7: /* reg: LOADI */
   case 5: /* reg: COPYI */
