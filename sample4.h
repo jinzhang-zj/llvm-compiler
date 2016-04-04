@@ -88,12 +88,13 @@ static int getNexOff()
 // Expire the old register that's not useful
 static void expireOldInterval(Instruction *inst) {
   int T = InstIdx[inst];
-  errs() << "expire " << "\n";
+  //errs() << "trying " << *inst << " at interval " << T << "\n";
   for (auto it = InsTable.begin(); it != InsTable.end(); ++it)
   {
     NODEPTR cur = nodes[it->second];
-    if (cur->end < T)
+    if (cur->end <= T)
     {
+      //errs() << "expire " << it->first << " at time interval " << T << "\n";
       pools.insert(it->first);
       InsTable.erase(it->first);
       RegTable.erase(it->second);
@@ -119,7 +120,8 @@ static std::string spillAtInterval(Instruction *inst)
   std::string reg = RegTable[maxIns];
   int offset = getNexOff();
   RegTable[maxIns] = std::to_string(offset) + "(%rbp)";
-  std::cout << "movq " << RegTable[maxIns] << ", " << reg << "\n";
+  InsTable.erase(reg);
+  std::cout << "movq(spill) " << RegTable[maxIns] << ", " << reg << "\n";
   return reg;
 }
 
@@ -142,8 +144,22 @@ static std::string getNexReg(Instruction *inst) {
     reg = spillAtInterval(inst);
   }
 
-  //errs() << "\ninstruction " << *inst << " is getting " << reg << "\n";
   return reg;
+}
+
+std::string binop(Instruction *inst)
+{
+  switch (inst->getOpcode()) {
+    case Instruction::Add : return "addq ";
+    case Instruction::Sub : return "subq ";
+    case Instruction::Mul : return "mulq ";
+    case Instruction::UDiv : 
+    case Instruction::SDiv : return "divq ";
+    case Instruction::And : return "andq ";
+    case Instruction::Or :  return "orq ";
+    case Instruction::Xor :  return "xorq ";
+    default: return "unknown ";
+  }
 }
 
 #define BURP 0
@@ -335,19 +351,19 @@ int burm_file_numbers[] = {
 };
 
 int burm_line_numbers[] = {
-  /* 0 */  156,
-  /* 1 */  163,
-  /* 2 */  174,
-  /* 3 */  185,
-  /* 4 */  200,
-  /* 5 */  210,
-  /* 6 */  227,
-  /* 7 */  241,
-  /* 8 */  258,
-  /* 9 */  282,
-  /* 10 */  297,
-  /* 11 */  307,
-  /* 12 */  317,
+  /* 0 */  172,
+  /* 1 */  179,
+  /* 2 */  190,
+  /* 3 */  201,
+  /* 4 */  216,
+  /* 5 */  226,
+  /* 6 */  245,
+  /* 7 */  260,
+  /* 8 */  277,
+  /* 9 */  301,
+  /* 10 */  316,
+  /* 11 */  326,
+  /* 12 */  336,
 };
 
 #pragma GCC diagnostic push
@@ -623,7 +639,7 @@ int indent)
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
-		std::cout << "movq " + disp_action(_s->kids[0],indent+1) + ", " + rc_action(_s->kids[1],indent+1) + "\n";
+		std::cout << "movq(store) " + disp_action(_s->kids[0],indent+1) + ", " + rc_action(_s->kids[1],indent+1) + "\n";
 		return "";
 	
 }
@@ -655,7 +671,7 @@ int indent)
 		RegTable[_s->node->inst] = reg1;
                 InsTable[reg1] = _s->node->inst;
                 std::cout << "leaq " << reg1 << ", " << disp_action(_s->kids[1],indent+1) << "\n";
-		std::cout << "movq " + disp_action(_s->kids[0],indent+1) + ", " + reg1 + "\n";
+		std::cout << "movq(store2) " + disp_action(_s->kids[0],indent+1) + ", " + reg1 + "\n";
 		return "";
 	
 }
@@ -697,9 +713,11 @@ int indent)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
                 std::string reg1 = getNexReg(_s->node->inst);
-                std::cout << "movq " + reg1 + ", " + RegTable[_s->node->inst] + "\n";
+                if (reg1.compare(RegTable[_s->node->inst]) != 0)
+                  std::cout << "movq(copy) " + reg1 + ", " + RegTable[_s->node->inst] + "\n";
                 if (RegTable[_s->node->inst][0] != '%')
                 {
+                  errs() << "copy updating " << *(_s->node->inst) << " to " << reg1 << "\n";
                   RegTable[_s->node->inst] = reg1;
                   InsTable[reg1] = _s->node->inst;
                 }
@@ -717,9 +735,10 @@ int indent)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
                 std::string reg1 = reg_action(_s->kids[0],indent+1);
-                std::cout << "addq " + reg1 +  ", " + rc_action(_s->kids[1],indent+1) + "\n";
                 NODEPTR cur = _s->node;
+                std::cout << binop(cur->inst) + reg1 +  ", " + rc_action(_s->kids[1],indent+1) + "\n";
                 RegTable[cur->inst] = reg1;
+                InsTable[reg1] = cur->inst;
                 return reg1;
 	
 }
@@ -739,7 +758,7 @@ int indent)
                 NODEPTR cur = _s->node;
                 Instruction *inst = dyn_cast<Instruction>(cur->inst->getOperand(0));
                 int offset = SymTable[inst];
-                std::cout << "movq " + reg1 + ", " + std::to_string(offset) + "(%rbp)\n";
+                std::cout << "movq(load) " + reg1 + ", " + std::to_string(offset) + "(%rbp)\n";
                 return reg1;
 	
 }
