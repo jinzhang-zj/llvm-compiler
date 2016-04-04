@@ -366,12 +366,12 @@ int burm_line_numbers[] = {
   /* 5 */  228,
   /* 6 */  247,
   /* 7 */  262,
-  /* 8 */  291,
-  /* 9 */  315,
-  /* 10 */  329,
-  /* 11 */  344,
-  /* 12 */  354,
-  /* 13 */  364,
+  /* 8 */  292,
+  /* 9 */  316,
+  /* 10 */  330,
+  /* 11 */  346,
+  /* 12 */  356,
+  /* 13 */  366,
 };
 
 #pragma GCC diagnostic push
@@ -779,7 +779,8 @@ int indent)
 		  llvm::raw_string_ostream rso(str);
 		  inst->print(rso);
 		  rso.flush();
-		  std::cout << "movq(load) " + reg1 + ", " + str.substr(1, 1) + "(%rip)\n";
+    		  int idx = str.find_first_of(' ');
+		  std::cout << "movq(load) " + reg1 + ", " + str.substr(1, idx -1) + "(%rip)\n";
                 }
 		else
 		{
@@ -862,8 +863,9 @@ int indent)
 		llvm::raw_string_ostream rso(str);
 		_s->node->inst->print(rso);
 		rso.flush();
+                int idx = str.find_first_of(' ');
 		std::string rip = "(%rip)";
-		return str.substr(1,1) + rip;
+		return str.substr(1, idx - 1) + rip;
 	
 }
   break;
@@ -1340,7 +1342,8 @@ static void GlobalLayOut()
     llvm::raw_string_ostream rso(str);
     inst->print(rso);
     rso.flush();
-    std::string var = str.substr(1, 1);
+    int idx = str.find_first_of(' ');
+    std::string var = str.substr(1, idx - 1);
     Constant* cnst = dyn_cast<Constant>(inst->getOperand(0));
     int val = cnst->getUniqueInteger().getSExtValue();
     std::cout << "\t.type\t" << var << ",@object\n";

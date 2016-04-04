@@ -275,7 +275,8 @@ reg:	LOADI
 		  llvm::raw_string_ostream rso(str);
 		  inst->print(rso);
 		  rso.flush();
-		  std::cout << "movq(load) " + reg1 + ", " + str.substr(1, 1) + "(%rip)\n";
+    		  int idx = str.find_first_of(' ');
+		  std::cout << "movq(load) " + reg1 + ", " + str.substr(1, idx -1) + "(%rip)\n";
                 }
 		else
 		{
@@ -335,8 +336,9 @@ disp:	GLOBI
 		llvm::raw_string_ostream rso(str);
 		_s->node->inst->print(rso);
 		rso.flush();
+                int idx = str.find_first_of(' ');
 		std::string rip = "(%rip)";
-		return str.substr(1,1) + rip;
+		return str.substr(1, idx - 1) + rip;
 	};
 
 rc:	con
@@ -418,7 +420,8 @@ static void GlobalLayOut()
     llvm::raw_string_ostream rso(str);
     inst->print(rso);
     rso.flush();
-    std::string var = str.substr(1, 1);
+    int idx = str.find_first_of(' ');
+    std::string var = str.substr(1, idx - 1);
     Constant* cnst = dyn_cast<Constant>(inst->getOperand(0));
     int val = cnst->getUniqueInteger().getSExtValue();
     std::cout << "\t.type\t" << var << ",@object\n";
