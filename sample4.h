@@ -1754,6 +1754,7 @@ void headerGen(char *filename)
 void tailGen()
 {
   //std::cout << "\txorl\t%eax, %eax\n";
+  std::cout << "\tmovq\t-8(%rbp), %rax\n";
   std::cout << "\tpopq\t%rbp\n";
   std::cout << "\tretq\n";
 }
