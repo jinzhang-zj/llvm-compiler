@@ -26,7 +26,8 @@ enum {
   LOADI=1, STOREI=2, CNSTT=3, BINOP1=4,
   BINOP2=5, STOREI2=10, GLOBI=51,
   COPYI=6, ADDRLP=7, ASGNI=8, MEM=9,
-  ICMPI=111, JUMPI=112, UJUMPI=113
+  ICMPI=111, JUMPI=112, UJUMPI=113, RETI=114,
+  URET=115
 };
 
 typedef struct tree {
@@ -36,6 +37,7 @@ typedef struct tree {
   int val;
   int start;
   int end;
+  std::string bb;
   int num_kids;
   Instruction *inst;      
   struct { struct burm_state *state; } x;
@@ -80,8 +82,8 @@ std::map<Instruction*, int> SymTable;	// Instruction and offset in stack
 std::map<Instruction*, int> InstIdx;	// Instruction and its number
 std::map<Instruction*, std::string> RegTable;  // Instruction and register
 std::map<std::string, Instruction*> InsTable;  // Register and instruction
-std::map<Value*, std::string> labelTable;  // Instruction and label
-
+std::map<BasicBlock*, std::string> labelTable;  // Instruction and label
+std::map<BasicBlock*, int> printed; // Keeps track of whether basic block label has been printed
 int labelCount = 0;
 
 int offCount = -8;	// Global value for offset count
@@ -193,11 +195,12 @@ std::string binop(Instruction *inst)
 #define ASGNI 8
 #define MEM 9
 #define STOREI2 10
-#define RETI 11
-#define ICMPI 12
-#define JUMPI 13
-#define UJUMPI 14
-#define GLOBI 15
+#define ICMPI 11
+#define JUMPI 12
+#define UJUMPI 13
+#define GLOBI 14
+#define RETI 15
+#define URET 16
 
 struct burm_state {
   int op;
@@ -205,7 +208,7 @@ struct burm_state {
   struct burm_state **kids;
   COST cost[7];
   struct {
-    unsigned burm_stmt:3;
+    unsigned burm_stmt:4;
     unsigned burm_reg:3;
     unsigned burm_disp:3;
     unsigned burm_rc:2;
@@ -283,10 +286,10 @@ std::string burm_ntname[] = {
 };
 
 static short burm_nts_0[] = { burm___NT, burm___NT, burm___NT, 0 };
-static short burm_nts_1[] = { burm_disp_NT, burm_rc_NT, 0 };
-static short burm_nts_2[] = { burm_reg_NT, burm_rc_NT, 0 };
-static short burm_nts_3[] = { burm_disp_NT, burm_disp_NT, 0 };
-static short burm_nts_4[] = { 0 };
+static short burm_nts_1[] = { 0 };
+static short burm_nts_2[] = { burm_disp_NT, burm_rc_NT, 0 };
+static short burm_nts_3[] = { burm_reg_NT, burm_rc_NT, 0 };
+static short burm_nts_4[] = { burm_disp_NT, burm_disp_NT, 0 };
 static short burm_nts_5[] = { burm_rc_NT, 0 };
 static short burm_nts_6[] = { burm_reg_NT, 0 };
 static short burm_nts_7[] = { burm_rc_NT, burm_reg_NT, 0 };
@@ -296,22 +299,24 @@ short *burm_nts[] = {
   burm_nts_0,  /* 0 */
   burm_nts_1,  /* 1 */
   burm_nts_2,  /* 2 */
-  burm_nts_2,  /* 3 */
+  burm_nts_3,  /* 3 */
   burm_nts_3,  /* 4 */
   burm_nts_4,  /* 5 */
-  burm_nts_5,  /* 6 */
-  burm_nts_6,  /* 7 */
-  burm_nts_4,  /* 8 */
-  burm_nts_2,  /* 9 */
-  burm_nts_7,  /* 10 */
-  burm_nts_4,  /* 11 */
-  burm_nts_4,  /* 12 */
-  burm_nts_2,  /* 13 */
-  burm_nts_7,  /* 14 */
-  burm_nts_4,  /* 15 */
-  burm_nts_8,  /* 16 */
-  burm_nts_6,  /* 17 */
-  burm_nts_4,  /* 18 */
+  burm_nts_1,  /* 6 */
+  burm_nts_5,  /* 7 */
+  burm_nts_6,  /* 8 */
+  burm_nts_6,  /* 9 */
+  burm_nts_1,  /* 10 */
+  burm_nts_3,  /* 11 */
+  burm_nts_7,  /* 12 */
+  burm_nts_1,  /* 13 */
+  burm_nts_1,  /* 14 */
+  burm_nts_3,  /* 15 */
+  burm_nts_7,  /* 16 */
+  burm_nts_1,  /* 17 */
+  burm_nts_8,  /* 18 */
+  burm_nts_6,  /* 19 */
+  burm_nts_1,  /* 20 */
 };
 
 char burm_arity[] = {
@@ -326,11 +331,12 @@ char burm_arity[] = {
   0,  /* 8=ASGNI */
   0,  /* 9=MEM */
   2,  /* 10=STOREI2 */
-  0,  /* 11=RETI */
-  2,  /* 12=ICMPI */
-  1,  /* 13=JUMPI */
-  0,  /* 14=UJUMPI */
-  0,  /* 15=GLOBI */
+  2,  /* 11=ICMPI */
+  1,  /* 12=JUMPI */
+  0,  /* 13=UJUMPI */
+  0,  /* 14=GLOBI */
+  1,  /* 15=RETI */
+  0,  /* 16=URET */
 };
 
 std::string burm_opname[] = {
@@ -345,34 +351,37 @@ std::string burm_opname[] = {
   /* 8 */  "ASGNI",
   /* 9 */  "MEM",
   /* 10 */  "STOREI2",
-  /* 11 */  "RETI",
-  /* 12 */  "ICMPI",
-  /* 13 */  "JUMPI",
-  /* 14 */  "UJUMPI",
-  /* 15 */  "GLOBI",
+  /* 11 */  "ICMPI",
+  /* 12 */  "JUMPI",
+  /* 13 */  "UJUMPI",
+  /* 14 */  "GLOBI",
+  /* 15 */  "RETI",
+  /* 16 */  "URET",
 };
 
 
 std::string burm_string[] = {
   /* 0 */  "stmt: BURP(_,_,_)",
-  /* 1 */  "stmt: STOREI(disp,rc)",
-  /* 2 */  "reg: ICMPI(reg,rc)",
-  /* 3 */  "stmt: STOREI(reg,rc)",
-  /* 4 */  "stmt: STOREI2(disp,disp)",
-  /* 5 */  "stmt: UJUMPI",
-  /* 6 */  "stmt: JUMPI(rc)",
-  /* 7 */  "stmt: reg",
-  /* 8 */  "reg: COPYI",
-  /* 9 */  "reg: BINOP1(reg,rc)",
-  /* 10 */  "reg: BINOP2(rc,reg)",
-  /* 11 */  "reg: LOADI",
-  /* 12 */  "disp: ADDRLP",
-  /* 13 */  "disp: BINOP1(reg,rc)",
-  /* 14 */  "disp: BINOP2(rc,reg)",
-  /* 15 */  "disp: GLOBI",
-  /* 16 */  "rc: con",
-  /* 17 */  "rc: reg",
-  /* 18 */  "con: CNSTT",
+  /* 1 */  "stmt: URET",
+  /* 2 */  "stmt: STOREI(disp,rc)",
+  /* 3 */  "reg: ICMPI(reg,rc)",
+  /* 4 */  "stmt: STOREI(reg,rc)",
+  /* 5 */  "stmt: STOREI2(disp,disp)",
+  /* 6 */  "stmt: UJUMPI",
+  /* 7 */  "stmt: JUMPI(rc)",
+  /* 8 */  "stmt: reg",
+  /* 9 */  "stmt: RETI(reg)",
+  /* 10 */  "reg: COPYI",
+  /* 11 */  "reg: BINOP1(reg,rc)",
+  /* 12 */  "reg: BINOP2(rc,reg)",
+  /* 13 */  "reg: LOADI",
+  /* 14 */  "disp: ADDRLP",
+  /* 15 */  "disp: BINOP1(reg,rc)",
+  /* 16 */  "disp: BINOP2(rc,reg)",
+  /* 17 */  "disp: GLOBI",
+  /* 18 */  "rc: con",
+  /* 19 */  "rc: reg",
+  /* 20 */  "con: CNSTT",
 };
 
 
@@ -400,28 +409,32 @@ int burm_file_numbers[] = {
   /* 16 */  0,
   /* 17 */  0,
   /* 18 */  0,
+  /* 19 */  0,
+  /* 20 */  0,
 };
 
 int burm_line_numbers[] = {
-  /* 0 */  194,
-  /* 1 */  201,
-  /* 2 */  213,
-  /* 3 */  230,
-  /* 4 */  241,
-  /* 5 */  258,
-  /* 6 */  270,
-  /* 7 */  315,
-  /* 8 */  325,
-  /* 9 */  344,
-  /* 10 */  375,
-  /* 11 */  406,
-  /* 12 */  436,
-  /* 13 */  460,
-  /* 14 */  491,
-  /* 15 */  521,
-  /* 16 */  537,
-  /* 17 */  547,
-  /* 18 */  557,
+  /* 0 */  196,
+  /* 1 */  204,
+  /* 2 */  217,
+  /* 3 */  229,
+  /* 4 */  246,
+  /* 5 */  257,
+  /* 6 */  274,
+  /* 7 */  286,
+  /* 8 */  331,
+  /* 9 */  342,
+  /* 10 */  356,
+  /* 11 */  375,
+  /* 12 */  406,
+  /* 13 */  437,
+  /* 14 */  477,
+  /* 15 */  501,
+  /* 16 */  532,
+  /* 17 */  562,
+  /* 18 */  578,
+  /* 19 */  588,
+  /* 20 */  598,
 };
 
 #pragma GCC diagnostic push
@@ -431,39 +444,41 @@ static short burm_decode_stmt[] = {
    -1,
   0,
   1,
-  3,
+  2,
   4,
   5,
   6,
   7,
+  8,
+  9,
 };
 
 static short burm_decode_reg[] = {
    -1,
-  2,
-  8,
-  9,
+  3,
   10,
   11,
+  12,
+  13,
 };
 
 static short burm_decode_disp[] = {
    -1,
-  12,
-  13,
   14,
   15,
-};
-
-static short burm_decode_rc[] = {
-   -1,
   16,
   17,
 };
 
-static short burm_decode_con[] = {
+static short burm_decode_rc[] = {
    -1,
   18,
+  19,
+};
+
+static short burm_decode_con[] = {
+   -1,
+  20,
 };
 
 static short burm_decode__[] = {
@@ -518,14 +533,14 @@ int burm_cost_code(COST *_c, int _ern,struct burm_state *_s)
 {
 
 
- (*_c).cost=_s->kids[0]->cost[burm_disp_NT].cost+_s->kids[1]->cost[burm_rc_NT].cost+1; 
+ (*_c).cost=0;
 }
   break;
   case 2:
 {
 
 
- (*_c).cost=_s->kids[0]->cost[burm_reg_NT].cost+_s->kids[1]->cost[burm_rc_NT].cost+1; 
+ (*_c).cost=_s->kids[0]->cost[burm_disp_NT].cost+_s->kids[1]->cost[burm_rc_NT].cost+1; 
 }
   break;
   case 3:
@@ -539,101 +554,115 @@ int burm_cost_code(COST *_c, int _ern,struct burm_state *_s)
 {
 
 
- (*_c).cost=_s->kids[0]->cost[burm_disp_NT].cost+_s->kids[1]->cost[burm_disp_NT].cost+1; 
+ (*_c).cost=_s->kids[0]->cost[burm_reg_NT].cost+_s->kids[1]->cost[burm_rc_NT].cost+1; 
 }
   break;
   case 5:
 {
 
 
- (*_c).cost=1;
+ (*_c).cost=_s->kids[0]->cost[burm_disp_NT].cost+_s->kids[1]->cost[burm_disp_NT].cost+1; 
 }
   break;
   case 6:
 {
 
 
- (*_c).cost=_s->kids[0]->cost[burm_rc_NT].cost+1;
+ (*_c).cost=1;
 }
   break;
   case 7:
 {
 
 
- (*_c).cost=_s->cost[burm_reg_NT].cost; 
+ (*_c).cost=_s->kids[0]->cost[burm_rc_NT].cost+1;
 }
   break;
   case 8:
 {
 
 
- (*_c).cost=1; 
+ (*_c).cost=_s->cost[burm_reg_NT].cost; 
 }
   break;
   case 9:
 {
 
 
- (*_c).cost=_s->kids[0]->cost[burm_reg_NT].cost+_s->kids[1]->cost[burm_rc_NT].cost+1; 
+ (*_c).cost=_s->kids[0]->cost[burm_reg_NT].cost + 1; 
 }
   break;
   case 10:
 {
 
 
- (*_c).cost=_s->kids[0]->cost[burm_rc_NT].cost+_s->kids[1]->cost[burm_reg_NT].cost+1; 
+ (*_c).cost=1; 
 }
   break;
   case 11:
 {
 
 
- (*_c).cost=1; 
+ (*_c).cost=_s->kids[0]->cost[burm_reg_NT].cost+_s->kids[1]->cost[burm_rc_NT].cost+1; 
 }
   break;
   case 12:
 {
 
 
- (*_c).cost=0; 
+ (*_c).cost=_s->kids[0]->cost[burm_rc_NT].cost+_s->kids[1]->cost[burm_reg_NT].cost+1; 
 }
   break;
   case 13:
 {
 
 
- (*_c).cost=_s->kids[0]->cost[burm_reg_NT].cost+_s->kids[1]->cost[burm_rc_NT].cost+1; 
+ (*_c).cost=1; 
 }
   break;
   case 14:
 {
 
 
- (*_c).cost=_s->kids[0]->cost[burm_rc_NT].cost+_s->kids[1]->cost[burm_reg_NT].cost+1; 
+ (*_c).cost=0; 
 }
   break;
   case 15:
 {
 
 
- (*_c).cost=0; 
+ (*_c).cost=_s->kids[0]->cost[burm_reg_NT].cost+_s->kids[1]->cost[burm_rc_NT].cost+1; 
 }
   break;
   case 16:
 {
 
 
- (*_c).cost=_s->cost[burm_con_NT].cost; 
+ (*_c).cost=_s->kids[0]->cost[burm_rc_NT].cost+_s->kids[1]->cost[burm_reg_NT].cost+1; 
 }
   break;
   case 17:
 {
 
 
- (*_c).cost=_s->cost[burm_reg_NT].cost; 
+ (*_c).cost=0; 
 }
   break;
   case 18:
+{
+
+
+ (*_c).cost=_s->cost[burm_con_NT].cost; 
+}
+  break;
+  case 19:
+{
+
+
+ (*_c).cost=_s->cost[burm_reg_NT].cost; 
+}
+  break;
+  case 20:
 {
 
 
@@ -745,12 +774,27 @@ int indent)
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
+		std::cout << "\tretq\t\n"; 
+                return "";
+
+	
+}
+  break;
+  case 2:
+{
+
+
+
+		int i;
+		for (i = 0; i < indent; i++)
+			std::cerr << " ";
+		std::cerr << burm_string[_ern] << "\n";
 		std::cout << "\tmovq\t" + rc_action(_s->kids[1],indent+1) + ", " + disp_action(_s->kids[0],indent+1) + "\n";
 		return "";
 	
 }
   break;
-  case 3:
+  case 4:
 {
 
 
@@ -764,7 +808,7 @@ int indent)
 	
 }
   break;
-  case 4:
+  case 5:
 {
 
 
@@ -782,7 +826,7 @@ int indent)
 	
 }
   break;
-  case 5:
+  case 6:
 {
 
 
@@ -792,12 +836,12 @@ int indent)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
 		NODEPTR cur = _s->node;
-		std::cout << "\tjmp\t" + labelTable[cur->inst->getOperand(0)] + "\n"; 
+		std::cout << "\tjmp " + labelTable[dyn_cast<BasicBlock>(cur->inst->getOperand(0))] + "\n"; 
                 return "";
 	
 }
   break;
-  case 6:
+  case 7:
 {
 
 
@@ -835,14 +879,14 @@ int indent)
                 else if (opr == 41)
                         x86opr = "\tjle\t";
 
-		std::cout << x86opr + labelTable[cur->inst->getOperand(1)] + "\n";
-		std::cout << "\tjmp\t" + labelTable[cur->inst->getOperand(2)] + "\n"; 
+		std::cout << "\t" + x86opr + labelTable[dyn_cast<BasicBlock>(cur->inst->getOperand(1))] + "\n";
+		std::cout << "\tjmp " + labelTable[dyn_cast<BasicBlock>(cur->inst->getOperand(2))] + "\n"; 
                 return "";
 
 	
 }
   break;
-  case 7:
+  case 8:
 {
 
 
@@ -852,6 +896,22 @@ int indent)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
 		return reg_action(_s,indent+1);
+	
+}
+  break;
+  case 9:
+{
+
+
+
+		int i;
+		for (i = 0; i < indent; i++)
+			std::cerr << " ";
+		std::cerr << burm_string[_ern] << "\n";
+                std::string reg1 = reg_action(_s->kids[0],indent+1);
+                if (reg1.compare("%rax") != 0)
+                  std::cout << "\tmovq\t" + reg1 + ", %rax\n";
+		return "";
 	
 }
   break;
@@ -869,7 +929,7 @@ int indent)
   if(_s->rule.burm_reg==0)
     NO_ACTION(reg);
   switch(_ern){
-  case 2:
+  case 3:
 {
 
 
@@ -887,7 +947,7 @@ int indent)
 	
 }
   break;
-  case 8:
+  case 10:
 {
 
 
@@ -909,7 +969,7 @@ int indent)
 	
 }
   break;
-  case 9:
+  case 11:
 {
 
 
@@ -943,7 +1003,7 @@ int indent)
 	
 }
   break;
-  case 10:
+  case 12:
 {
 
 
@@ -977,7 +1037,7 @@ int indent)
 	
 }
   break;
-  case 11:
+  case 13:
 {
 
 
@@ -999,13 +1059,23 @@ int indent)
 		  rso.flush();
     		  int idx = str.find_first_of(' ');
 		  std::cout << "\tmovq\t" + str.substr(1, idx -1) + "(%rip), " + reg1 + "\n";
+		  return reg1;
                 }
-		else
-		{
-                  Instruction *inst = dyn_cast<Instruction>(cur->inst->getOperand(0));
+
+                Instruction *inst = dyn_cast<Instruction>(cur->inst->getOperand(0));
+                if (strcmp(inst->getOpcodeName(), "alloca") == 0)
+                {
                   int offset = SymTable[inst];
                   std::cout << "\tmovq\t" + std::to_string(offset) + "(%rbp), " + reg1 + "\n";
-		}
+                }
+                else if (strcmp(inst->getOpcodeName(), "load") == 0)
+                {
+                  Instruction *kidinst = dyn_cast<Instruction>(inst->getOperand(0));
+                  std::string reg2 = getNexReg(kidinst);
+                  int offset = SymTable[kidinst];
+                  std::cout << "\tmovq\t" + std::to_string(offset) + "(%rbp), " + reg2 + "\n";
+                  std::cout << "\tmovq\t(" + reg2 + "), " + reg1 + "\n";
+                }
                 return reg1;
 	
 }
@@ -1024,7 +1094,7 @@ int indent)
   if(_s->rule.burm_disp==0)
     NO_ACTION(disp);
   switch(_ern){
-  case 12:
+  case 14:
 {
 
 
@@ -1051,7 +1121,7 @@ int indent)
 	
 }
   break;
-  case 13:
+  case 15:
 {
 
 
@@ -1085,7 +1155,7 @@ int indent)
 	
 }
   break;
-  case 14:
+  case 16:
 {
 
 
@@ -1119,7 +1189,7 @@ int indent)
 	
 }
   break;
-  case 15:
+  case 17:
 {
 
 
@@ -1152,7 +1222,7 @@ int indent)
   if(_s->rule.burm_rc==0)
     NO_ACTION(rc);
   switch(_ern){
-  case 16:
+  case 18:
 {
 
 
@@ -1165,7 +1235,7 @@ int indent)
 	
 }
   break;
-  case 17:
+  case 19:
 {
 
 
@@ -1192,7 +1262,7 @@ int indent)
   if(_s->rule.burm_con==0)
     NO_ACTION(con);
   switch(_ern){
-  case 18:
+  case 20:
 {
 
 
@@ -1214,19 +1284,19 @@ static void burm_closure_reg(struct burm_state *, COST);
 static void burm_closure_con(struct burm_state *, COST);
 
 static void burm_closure_reg(struct burm_state *s, COST c) {
-  if(burm_cost_code(&c,17,s) && COST_LESS(c,s->cost[burm_rc_NT])) {
-burm_trace(burm_np, 17, c);     s->cost[burm_rc_NT] = c ;
+  if(burm_cost_code(&c,19,s) && COST_LESS(c,s->cost[burm_rc_NT])) {
+burm_trace(burm_np, 19, c);     s->cost[burm_rc_NT] = c ;
     s->rule.burm_rc = 2;
   }
-  if(burm_cost_code(&c,7,s) && COST_LESS(c,s->cost[burm_stmt_NT])) {
-burm_trace(burm_np, 7, c);     s->cost[burm_stmt_NT] = c ;
-    s->rule.burm_stmt = 7;
+  if(burm_cost_code(&c,8,s) && COST_LESS(c,s->cost[burm_stmt_NT])) {
+burm_trace(burm_np, 8, c);     s->cost[burm_stmt_NT] = c ;
+    s->rule.burm_stmt = 8;
   }
 }
 
 static void burm_closure_con(struct burm_state *s, COST c) {
-  if(burm_cost_code(&c,16,s) && COST_LESS(c,s->cost[burm_rc_NT])) {
-burm_trace(burm_np, 16, c);     s->cost[burm_rc_NT] = c ;
+  if(burm_cost_code(&c,18,s) && COST_LESS(c,s->cost[burm_rc_NT])) {
+burm_trace(burm_np, 18, c);     s->cost[burm_rc_NT] = c ;
     s->rule.burm_rc = 1;
   }
 }
@@ -1293,8 +1363,8 @@ burm_trace(burm_np, 0, c);       s->cost[burm_stmt_NT] = c ;
     SET_STATE(u,s);
     k=0;
     {  		/* reg: LOADI */
-      if(burm_cost_code(&c,11,s) && COST_LESS(c,s->cost[burm_reg_NT])) {
-burm_trace(burm_np, 11, c);         s->cost[burm_reg_NT] = c ;
+      if(burm_cost_code(&c,13,s) && COST_LESS(c,s->cost[burm_reg_NT])) {
+burm_trace(burm_np, 13, c);         s->cost[burm_reg_NT] = c ;
         s->rule.burm_reg = 5;
         burm_closure_reg(s, c );
       }
@@ -1311,18 +1381,18 @@ burm_trace(burm_np, 11, c);         s->cost[burm_reg_NT] = c ;
       k[0]->rule.burm_reg && 
       k[1]->rule.burm_rc
     ) {
-      if(burm_cost_code(&c,3,s) && COST_LESS(c,s->cost[burm_stmt_NT])) {
-burm_trace(burm_np, 3, c);         s->cost[burm_stmt_NT] = c ;
-        s->rule.burm_stmt = 3;
+      if(burm_cost_code(&c,4,s) && COST_LESS(c,s->cost[burm_stmt_NT])) {
+burm_trace(burm_np, 4, c);         s->cost[burm_stmt_NT] = c ;
+        s->rule.burm_stmt = 4;
       }
     }
     if (   /* stmt: STOREI(disp,rc) */
       k[0]->rule.burm_disp && 
       k[1]->rule.burm_rc
     ) {
-      if(burm_cost_code(&c,1,s) && COST_LESS(c,s->cost[burm_stmt_NT])) {
-burm_trace(burm_np, 1, c);         s->cost[burm_stmt_NT] = c ;
-        s->rule.burm_stmt = 2;
+      if(burm_cost_code(&c,2,s) && COST_LESS(c,s->cost[burm_stmt_NT])) {
+burm_trace(burm_np, 2, c);         s->cost[burm_stmt_NT] = c ;
+        s->rule.burm_stmt = 3;
       }
     }
     break;
@@ -1335,8 +1405,8 @@ burm_trace(burm_np, 1, c);         s->cost[burm_stmt_NT] = c ;
     SET_STATE(u,s);
     k=0;
     {  		/* con: CNSTT */
-      if(burm_cost_code(&c,18,s) && COST_LESS(c,s->cost[burm_con_NT])) {
-burm_trace(burm_np, 18, c);         s->cost[burm_con_NT] = c ;
+      if(burm_cost_code(&c,20,s) && COST_LESS(c,s->cost[burm_con_NT])) {
+burm_trace(burm_np, 20, c);         s->cost[burm_con_NT] = c ;
         s->rule.burm_con = 1;
         burm_closure_con(s, c );
       }
@@ -1353,8 +1423,8 @@ burm_trace(burm_np, 18, c);         s->cost[burm_con_NT] = c ;
       k[0]->rule.burm_reg && 
       k[1]->rule.burm_rc
     ) {
-      if(burm_cost_code(&c,13,s) && COST_LESS(c,s->cost[burm_disp_NT])) {
-burm_trace(burm_np, 13, c);         s->cost[burm_disp_NT] = c ;
+      if(burm_cost_code(&c,15,s) && COST_LESS(c,s->cost[burm_disp_NT])) {
+burm_trace(burm_np, 15, c);         s->cost[burm_disp_NT] = c ;
         s->rule.burm_disp = 2;
       }
     }
@@ -1362,8 +1432,8 @@ burm_trace(burm_np, 13, c);         s->cost[burm_disp_NT] = c ;
       k[0]->rule.burm_reg && 
       k[1]->rule.burm_rc
     ) {
-      if(burm_cost_code(&c,9,s) && COST_LESS(c,s->cost[burm_reg_NT])) {
-burm_trace(burm_np, 9, c);         s->cost[burm_reg_NT] = c ;
+      if(burm_cost_code(&c,11,s) && COST_LESS(c,s->cost[burm_reg_NT])) {
+burm_trace(burm_np, 11, c);         s->cost[burm_reg_NT] = c ;
         s->rule.burm_reg = 3;
         burm_closure_reg(s, c );
       }
@@ -1380,8 +1450,8 @@ burm_trace(burm_np, 9, c);         s->cost[burm_reg_NT] = c ;
       k[0]->rule.burm_rc && 
       k[1]->rule.burm_reg
     ) {
-      if(burm_cost_code(&c,14,s) && COST_LESS(c,s->cost[burm_disp_NT])) {
-burm_trace(burm_np, 14, c);         s->cost[burm_disp_NT] = c ;
+      if(burm_cost_code(&c,16,s) && COST_LESS(c,s->cost[burm_disp_NT])) {
+burm_trace(burm_np, 16, c);         s->cost[burm_disp_NT] = c ;
         s->rule.burm_disp = 3;
       }
     }
@@ -1389,8 +1459,8 @@ burm_trace(burm_np, 14, c);         s->cost[burm_disp_NT] = c ;
       k[0]->rule.burm_rc && 
       k[1]->rule.burm_reg
     ) {
-      if(burm_cost_code(&c,10,s) && COST_LESS(c,s->cost[burm_reg_NT])) {
-burm_trace(burm_np, 10, c);         s->cost[burm_reg_NT] = c ;
+      if(burm_cost_code(&c,12,s) && COST_LESS(c,s->cost[burm_reg_NT])) {
+burm_trace(burm_np, 12, c);         s->cost[burm_reg_NT] = c ;
         s->rule.burm_reg = 4;
         burm_closure_reg(s, c );
       }
@@ -1405,8 +1475,8 @@ burm_trace(burm_np, 10, c);         s->cost[burm_reg_NT] = c ;
     SET_STATE(u,s);
     k=0;
     {  		/* reg: COPYI */
-      if(burm_cost_code(&c,8,s) && COST_LESS(c,s->cost[burm_reg_NT])) {
-burm_trace(burm_np, 8, c);         s->cost[burm_reg_NT] = c ;
+      if(burm_cost_code(&c,10,s) && COST_LESS(c,s->cost[burm_reg_NT])) {
+burm_trace(burm_np, 10, c);         s->cost[burm_reg_NT] = c ;
         s->rule.burm_reg = 2;
         burm_closure_reg(s, c );
       }
@@ -1421,8 +1491,8 @@ burm_trace(burm_np, 8, c);         s->cost[burm_reg_NT] = c ;
     SET_STATE(u,s);
     k=0;
     {  		/* disp: ADDRLP */
-      if(burm_cost_code(&c,12,s) && COST_LESS(c,s->cost[burm_disp_NT])) {
-burm_trace(burm_np, 12, c);         s->cost[burm_disp_NT] = c ;
+      if(burm_cost_code(&c,14,s) && COST_LESS(c,s->cost[burm_disp_NT])) {
+burm_trace(burm_np, 14, c);         s->cost[burm_disp_NT] = c ;
         s->rule.burm_disp = 1;
       }
     }
@@ -1454,21 +1524,13 @@ burm_trace(burm_np, 12, c);         s->cost[burm_disp_NT] = c ;
       k[0]->rule.burm_disp && 
       k[1]->rule.burm_disp
     ) {
-      if(burm_cost_code(&c,4,s) && COST_LESS(c,s->cost[burm_stmt_NT])) {
-burm_trace(burm_np, 4, c);         s->cost[burm_stmt_NT] = c ;
-        s->rule.burm_stmt = 4;
+      if(burm_cost_code(&c,5,s) && COST_LESS(c,s->cost[burm_stmt_NT])) {
+burm_trace(burm_np, 5, c);         s->cost[burm_stmt_NT] = c ;
+        s->rule.burm_stmt = 5;
       }
     }
     break;
-  case 11:		/* RETI */
-    s=burm_alloc_state(u,op,arity);
-    SET_STATE(u,s);
-    k=s->kids;
-    children=GET_KIDS(u);
-    for(i=0;i<arity;i++)
-      k[i]=burm_label1(children[i]);
-    break;
-  case 12:		/* ICMPI */
+  case 11:		/* ICMPI */
     s=burm_alloc_state(u,op,arity);
     SET_STATE(u,s);
     k=s->kids;
@@ -1479,14 +1541,14 @@ burm_trace(burm_np, 4, c);         s->cost[burm_stmt_NT] = c ;
       k[0]->rule.burm_reg && 
       k[1]->rule.burm_rc
     ) {
-      if(burm_cost_code(&c,2,s) && COST_LESS(c,s->cost[burm_reg_NT])) {
-burm_trace(burm_np, 2, c);         s->cost[burm_reg_NT] = c ;
+      if(burm_cost_code(&c,3,s) && COST_LESS(c,s->cost[burm_reg_NT])) {
+burm_trace(burm_np, 3, c);         s->cost[burm_reg_NT] = c ;
         s->rule.burm_reg = 1;
         burm_closure_reg(s, c );
       }
     }
     break;
-  case 13:		/* JUMPI */
+  case 12:		/* JUMPI */
     s=burm_alloc_state(u,op,arity);
     SET_STATE(u,s);
     k=s->kids;
@@ -1496,13 +1558,13 @@ burm_trace(burm_np, 2, c);         s->cost[burm_reg_NT] = c ;
     if (   /* stmt: JUMPI(rc) */
       k[0]->rule.burm_rc
     ) {
-      if(burm_cost_code(&c,6,s) && COST_LESS(c,s->cost[burm_stmt_NT])) {
-burm_trace(burm_np, 6, c);         s->cost[burm_stmt_NT] = c ;
-        s->rule.burm_stmt = 6;
+      if(burm_cost_code(&c,7,s) && COST_LESS(c,s->cost[burm_stmt_NT])) {
+burm_trace(burm_np, 7, c);         s->cost[burm_stmt_NT] = c ;
+        s->rule.burm_stmt = 7;
       }
     }
     break;
-  case 14:		/* UJUMPI */
+  case 13:		/* UJUMPI */
 #ifdef LEAF_TRAP
     if(s=LEAF_TRAP(u,op))
       return s;
@@ -1511,13 +1573,13 @@ burm_trace(burm_np, 6, c);         s->cost[burm_stmt_NT] = c ;
     SET_STATE(u,s);
     k=0;
     {  		/* stmt: UJUMPI */
-      if(burm_cost_code(&c,5,s) && COST_LESS(c,s->cost[burm_stmt_NT])) {
-burm_trace(burm_np, 5, c);         s->cost[burm_stmt_NT] = c ;
-        s->rule.burm_stmt = 5;
+      if(burm_cost_code(&c,6,s) && COST_LESS(c,s->cost[burm_stmt_NT])) {
+burm_trace(burm_np, 6, c);         s->cost[burm_stmt_NT] = c ;
+        s->rule.burm_stmt = 6;
       }
     }
     break;
-  case 15:		/* GLOBI */
+  case 14:		/* GLOBI */
 #ifdef LEAF_TRAP
     if(s=LEAF_TRAP(u,op))
       return s;
@@ -1526,9 +1588,40 @@ burm_trace(burm_np, 5, c);         s->cost[burm_stmt_NT] = c ;
     SET_STATE(u,s);
     k=0;
     {  		/* disp: GLOBI */
-      if(burm_cost_code(&c,15,s) && COST_LESS(c,s->cost[burm_disp_NT])) {
-burm_trace(burm_np, 15, c);         s->cost[burm_disp_NT] = c ;
+      if(burm_cost_code(&c,17,s) && COST_LESS(c,s->cost[burm_disp_NT])) {
+burm_trace(burm_np, 17, c);         s->cost[burm_disp_NT] = c ;
         s->rule.burm_disp = 4;
+      }
+    }
+    break;
+  case 15:		/* RETI */
+    s=burm_alloc_state(u,op,arity);
+    SET_STATE(u,s);
+    k=s->kids;
+    children=GET_KIDS(u);
+    for(i=0;i<arity;i++)
+      k[i]=burm_label1(children[i]);
+    if (   /* stmt: RETI(reg) */
+      k[0]->rule.burm_reg
+    ) {
+      if(burm_cost_code(&c,9,s) && COST_LESS(c,s->cost[burm_stmt_NT])) {
+burm_trace(burm_np, 9, c);         s->cost[burm_stmt_NT] = c ;
+        s->rule.burm_stmt = 9;
+      }
+    }
+    break;
+  case 16:		/* URET */
+#ifdef LEAF_TRAP
+    if(s=LEAF_TRAP(u,op))
+      return s;
+#endif
+    s=burm_alloc_state(u,op,arity);
+    SET_STATE(u,s);
+    k=0;
+    {  		/* stmt: URET */
+      if(burm_cost_code(&c,1,s) && COST_LESS(c,s->cost[burm_stmt_NT])) {
+burm_trace(burm_np, 1, c);         s->cost[burm_stmt_NT] = c ;
+        s->rule.burm_stmt = 2;
       }
     }
     break;
@@ -1590,30 +1683,32 @@ NODEPTR *burm_kids(NODEPTR p, int eruleno, NODEPTR kids[]) {
     kids[1] = burm_child(p,1);
     kids[2] = burm_child(p,2);
     break;
-  case 14: /* disp: BINOP2(rc,reg) */
-  case 13: /* disp: BINOP1(reg,rc) */
-  case 10: /* reg: BINOP2(rc,reg) */
-  case 9: /* reg: BINOP1(reg,rc) */
-  case 4: /* stmt: STOREI2(disp,disp) */
-  case 3: /* stmt: STOREI(reg,rc) */
-  case 2: /* reg: ICMPI(reg,rc) */
-  case 1: /* stmt: STOREI(disp,rc) */
+  case 20: /* con: CNSTT */
+  case 17: /* disp: GLOBI */
+  case 14: /* disp: ADDRLP */
+  case 13: /* reg: LOADI */
+  case 10: /* reg: COPYI */
+  case 6: /* stmt: UJUMPI */
+  case 1: /* stmt: URET */
+    break;
+  case 16: /* disp: BINOP2(rc,reg) */
+  case 15: /* disp: BINOP1(reg,rc) */
+  case 12: /* reg: BINOP2(rc,reg) */
+  case 11: /* reg: BINOP1(reg,rc) */
+  case 5: /* stmt: STOREI2(disp,disp) */
+  case 4: /* stmt: STOREI(reg,rc) */
+  case 3: /* reg: ICMPI(reg,rc) */
+  case 2: /* stmt: STOREI(disp,rc) */
     kids[0] = burm_child(p,0);
     kids[1] = burm_child(p,1);
     break;
-  case 18: /* con: CNSTT */
-  case 15: /* disp: GLOBI */
-  case 12: /* disp: ADDRLP */
-  case 11: /* reg: LOADI */
-  case 8: /* reg: COPYI */
-  case 5: /* stmt: UJUMPI */
-    break;
-  case 6: /* stmt: JUMPI(rc) */
+  case 9: /* stmt: RETI(reg) */
+  case 7: /* stmt: JUMPI(rc) */
     kids[0] = burm_child(p,0);
     break;
-  case 17: /* rc: reg */
-  case 16: /* rc: con */
-  case 7: /* stmt: reg */
+  case 19: /* rc: reg */
+  case 18: /* rc: con */
+  case 8: /* stmt: reg */
     kids[0] = p;
     break;
   default:
@@ -1754,7 +1849,7 @@ void headerGen(char *filename)
 void tailGen()
 {
   //std::cout << "\txorl\t%eax, %eax\n";
-  std::cout << "\tmovq\t-8(%rbp), %rax\n";
+  //std::cout << "\tmovq\t-8(%rbp), %rax\n";
   std::cout << "\tpopq\t%rbp\n";
   std::cout << "\tretq\n";
 }

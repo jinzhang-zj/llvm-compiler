@@ -258,6 +258,37 @@ bool setTreeNode(Tree t, Instruction* inst) {
     break;
   }
 
+  case Instruction::Ret: {
+    
+    t->inst = inst;
+    
+    t->num_kids = inst->getNumOperands();
+    if (t->num_kids == 0)
+    {
+      t->op = URET;
+      break;
+    }
+
+    t->op = RETI;
+    Tree child;
+    Instruction* kidinst = dyn_cast<Instruction>(inst->getOperand(0));  
+    // Return a constant
+    if (isa<Constant>(inst->getOperand(0)))
+      child = makeConstantNode(inst, 0);
+    // If this operand is a root, we will create a copy node
+    else if(roots.find(kidinst) != roots.end())
+      child = makeCopyNode(kidinst);
+    // If it not a root, we can simply locate it in nodes map
+    // and make it the left child
+    else if (nodes.find(kidinst) != nodes.end())
+    {
+      child = nodes[kidinst];
+    }
+    t->kids[0] = child;
+    break;
+  }
+
+
     // Store instruction
   case Instruction::Store: {
     //errs() << "Instruction Store: ";
@@ -333,15 +364,38 @@ bool setTreeNode(Tree t, Instruction* inst) {
       t->op = UJUMPI;
       t->inst = inst;
       t->num_kids = 0;
-      labelTable.insert( std::make_pair(inst->getOperand(0), std::to_string(labelCount++)) );
+
+      int bb_label = 0;
+      BasicBlock* BB_itr = dyn_cast<BasicBlock>(inst->getOperand(0));
+
+      if(labelTable.find(BB_itr) == labelTable.end())  {
+	bb_label = labelCount ++;
+	labelTable.insert( std::make_pair(BB_itr, "label" + std::to_string(bb_label)) );
+	printed.insert( std::make_pair(BB_itr, 0));
+      }
+
       return true;
     }
     
     t->op = JUMPI;
     t->inst = inst;
     t->num_kids = 1;
-    labelTable.insert( std::make_pair(inst->getOperand(1), std::to_string(labelCount++)) );
-    labelTable.insert( std::make_pair(inst->getOperand(2), std::to_string(labelCount++)) );
+    int bb_label = 0;
+    BasicBlock* BB_itr0 = dyn_cast<BasicBlock>(inst->getOperand(1));
+    BasicBlock* BB_itr1 = dyn_cast<BasicBlock>(inst->getOperand(2));
+    
+    if(labelTable.find(BB_itr0) == labelTable.end()) {
+      bb_label = labelCount ++;
+      labelTable.insert( std::make_pair(BB_itr0, "label" + std::to_string(bb_label)) );
+      printed.insert( std::make_pair(BB_itr0, 0));
+    }
+  
+  
+    if(labelTable.find(BB_itr1) == labelTable.end()) { 
+      bb_label = labelCount ++;
+      labelTable.insert( std::make_pair(BB_itr1, "label" + std::to_string(bb_label)) );
+      printed.insert( std::make_pair(BB_itr1, 0));
+    }
 
     Instruction* operand = dyn_cast<Instruction>(inst->getOperand(0));
 
@@ -564,8 +618,8 @@ int main(int argc, char **argv) {
 	}
 
 
-	if(strcmp(inst_itr->getOpcodeName(), "ret") == 0)
-	  continue;
+	//if(strcmp(inst_itr->getOpcodeName(), "ret") == 0)
+	//  continue;
 	
 	if(strcmp(inst_itr->getOpcodeName(), "call") == 0)
 	  continue;
@@ -597,6 +651,12 @@ int main(int argc, char **argv) {
 	if(inst_itr->getOpcode() == Instruction::Store) {
 	  roots.insert(std::make_pair(inst_itr, t) );
           rootKeys.push_back(t);
+	  
+	}
+
+	if(inst_itr->getOpcode() == Instruction::Ret) {
+	  roots.insert(std::make_pair(inst_itr, t) );
+          rootKeys.push_back(t);
 	}
 
 	if(inst_itr->getOpcode() == Instruction::Br) {
@@ -624,11 +684,19 @@ int main(int argc, char **argv) {
 
   headerGen(argv[0]);
   for( Tree t : rootKeys ) {
-    gen(t);
+    Instruction* inst = t->inst;
+    BasicBlock* BB = inst->getParent();
+    if(labelTable.find(BB) != labelTable.end()) {
+      if(!printed[BB])
+	std::cout << labelTable[BB] <<": \n";
+      printed[BB]=1;
+    }
+      gen(t);
     }
   tailGen();
   GlobalLayOut();
-  errs() << "Nodes corresponding to program instructions: \n"; 
+  
+  // errs() << "Nodes corresponding to program instructions: \n"; 
   //printNodes();
 
   // errs() << "Trees corresponding to program instructions: \n";
