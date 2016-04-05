@@ -879,7 +879,7 @@ int indent)
                 else if (opr == 41)
                         x86opr = "\tjle\t";
 
-		std::cout << "\t" + x86opr + labelTable[dyn_cast<BasicBlock>(cur->inst->getOperand(1))] + "\n";
+		std::cout << x86opr + labelTable[dyn_cast<BasicBlock>(cur->inst->getOperand(1))] + "\n";
 		std::cout << "\tjmp " + labelTable[dyn_cast<BasicBlock>(cur->inst->getOperand(2))] + "\n"; 
                 return "";
 
@@ -1853,4 +1853,5 @@ void tailGen()
   std::cout << "\tpopq\t%rbp\n";
   std::cout << "\tretq\n";
 }
+
 #endif
