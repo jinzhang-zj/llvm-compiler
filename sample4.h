@@ -792,7 +792,7 @@ int indent)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
 		NODEPTR cur = _s->node;
-		std::cout << "jmp " + labelTable[cur->inst->getOperand(0)] + "\n"; 
+		std::cout << "\tjmp\t" + labelTable[cur->inst->getOperand(0)] + "\n"; 
                 return "";
 	
 }
@@ -815,28 +815,28 @@ int indent)
 		std::string x86opr = "";
 
                 if (opr == 32)
-                        x86opr = "je ";
+                        x86opr = "\tje\t";
                 else if (opr == 33)
-                        x86opr = "jne ";
+                        x86opr = "\tjne\t";
                 else if (opr == 34)
-                        x86opr = "ja ";
+                        x86opr = "\tja\t";
                	else if (opr == 35)
-                        x86opr = "jae ";
+                        x86opr = "\tjae\t";
                 else if (opr == 36)
-                        x86opr = "jb ";
+                        x86opr = "\jb\t";
                 else if (opr == 37)
-                        x86opr = "jbe ";
+                        x86opr = "\tjbe\t";
                 else if (opr == 38)
-                        x86opr = "jg ";
+                        x86opr = "\tjg\t";
                 else if (opr == 39)
-                        x86opr = "jge ";
+                        x86opr = "\tjge\t";
                 else if (opr == 40)
-                        x86opr = "jl ";
+                        x86opr = "\tjl\t";
                 else if (opr == 41)
-                        x86opr = "jle ";
+                        x86opr = "\tjle\t";
 
 		std::cout << x86opr + labelTable[cur->inst->getOperand(1)] + "\n";
-		std::cout << "jmp " + labelTable[cur->inst->getOperand(2)] + "\n"; 
+		std::cout << "\tjmp\t" + labelTable[cur->inst->getOperand(2)] + "\n"; 
                 return "";
 
 	
@@ -881,7 +881,7 @@ int indent)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
                 std::string reg1 = reg_action(_s->kids[0],indent+1);
-                std::cout << "cmp " + reg1 +  ", " + rc_action(_s->kids[1],indent+1) + "\n";
+                std::cout << "\tcmp\t" + reg1 +  ", " + rc_action(_s->kids[1],indent+1) + "\n";
                 RegTable[cur->inst] = reg1;
                 return reg1;
 	

@@ -302,11 +302,11 @@ bool setTreeNode(Tree t, Instruction* inst) {
       else {
 	free (child0);
 	child0 = makeAddressNode(inst, 0);
+        t->op = STOREI2;
       }   
 
          
     }
-
 
     // Computing the right child of store node
     // Note that this is a new node
