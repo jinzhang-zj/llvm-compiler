@@ -18,8 +18,8 @@
 #include <unordered_set>
 #include <sstream>
 enum {
-  LOADI=1, STOREI=2, CNSTT=3, ADDI1=4,
-  ADDI2=5, STOREI2=10, GLOBI=51,
+  LOADI=1, STOREI=2, CNSTT=3, BINOP1=4,
+  BINOP2=5, STOREI2=10, GLOBI=51,
   COPYI=6, ADDRLP=7, ASGNI=8, MEM=9,
   ICMPI=111, JUMPI=112, UJUMPI=113
 };
@@ -122,8 +122,19 @@ static std::string spillAtInterval(Instruction *inst)
   int offset = getNexOff();
   RegTable[maxIns] = std::to_string(offset) + "(%rbp)";
   InsTable.erase(reg);
-  std::cout << "\tmovq " << reg << ", " << RegTable[maxIns] << "\n";
+  std::cout << "\tmovq\t" << reg << ", " << RegTable[maxIns] << "\n";
   return reg;
+}
+
+void spillReg(std::string reg)
+{
+  if (InsTable.find(reg) == InsTable.end())
+    return;
+  Instruction *inst = InsTable[reg];
+  int offset = getNexOff();
+  RegTable[inst] = std::to_string(offset) + "(%rbp)";
+  InsTable.erase(reg);
+  std::cout << "\tmovq\t" << reg << ", " << RegTable[inst] << "\n";
 }
 
 // Allocate register with linear scan algorithm
@@ -151,21 +162,24 @@ static std::string getNexReg(Instruction *inst) {
 std::string binop(Instruction *inst)
 {
   switch (inst->getOpcode()) {
-    case Instruction::Add : return "\taddq ";
-    case Instruction::Sub : return "\tsubq ";
-    case Instruction::Mul : return "\tmulq ";
-    case Instruction::UDiv : 
-    case Instruction::SDiv : return "\tdivq ";
-    case Instruction::And : return "\tandq ";
-    case Instruction::Or :  return "\torq ";
-    case Instruction::Xor :  return "\txorq ";
-    default: return "\tunknown ";
+    case Instruction::Add : return "\taddq\t";
+    case Instruction::Sub : return "\tsubq\t";
+    case Instruction::Mul : return "\timulq\t";
+    case Instruction::UDiv : return "\tdivq\t";
+    case Instruction::SDiv : return "\tidivq\t";
+    case Instruction::Shl : return "\tsalq\t";
+    case Instruction::LShr : return "\tshrq\t";
+    case Instruction::AShr : return "\tsarq\t";
+    case Instruction::And : return "\tandq\t";
+    case Instruction::Or :  return "\torq\t";
+    case Instruction::Xor :  return "\txorq\t";
+    default: return "\tunknown\t";
   }
 }
 
 %}
 %term BURP=0 LOADI=1 STOREI=2 CNSTT=3
-%term ADDI1=4 ADDI2=5 COPYI=6 ADDRLP=7 
+%term BINOP1=4 BINOP2=5 COPYI=6 ADDRLP=7 
 %term ASGNI=8 MEM=9 STOREI2=10 RETI=11
 %term ICMPI=111 JUMPI=112 UJUMPI=113
 %term GLOBI=51
@@ -189,7 +203,7 @@ stmt:	STOREI(disp,rc)
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
-		std::cout << "\tmovq " + $action[3](indent+1) + ", " + $action[2](indent+1) + "\n";
+		std::cout << "\tmovq\t" + $action[3](indent+1) + ", " + $action[2](indent+1) + "\n";
 		return "";
 	};
 
@@ -218,7 +232,7 @@ stmt:	STOREI(reg,rc)
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
-		std::cout << "\tmovq" + $action[3](indent+1) + ", (" + $action[2](indent+1) + ")\n";
+		std::cout << "\tmovq\t" + $action[3](indent+1) + ", (" + $action[2](indent+1) + ")\n";
 		return "";
 	};
 
@@ -232,8 +246,8 @@ stmt:	STOREI2(disp,disp)
                 std::string reg1 = getNexReg(_s->node->inst);
 		RegTable[_s->node->inst] = reg1;
                 InsTable[reg1] = _s->node->inst;
-                std::cout << "\tleaq " << $action[3](indent+1) << ", " << reg1 << "\n";
-		std::cout << "\tmovq " + reg1 + ", " + $action[2](indent+1) + "\n";
+                std::cout << "\tleaq\t" << $action[3](indent+1) << ", " << reg1 << "\n";
+		std::cout << "\tmovq\t" + reg1 + ", " + $action[2](indent+1) + "\n";
 		return "";
 	};
 
@@ -315,7 +329,7 @@ reg:	COPYI
 		std::cerr << burm_string[_ern] << "\n";
                 std::string reg1 = getNexReg(_s->node->inst);
                 if (reg1.compare(RegTable[_s->node->inst]) != 0)
-                  std::cout << "\tmovq " + RegTable[_s->node->inst] + ", " + reg1 + "\n";
+                  std::cout << "\tmovq\t" + RegTable[_s->node->inst] + ", " + reg1 + "\n";
                 if (RegTable[_s->node->inst][0] != '%')
                 {
                   //errs() << "copy updating " << *(_s->node->inst) << " to " << reg1 << "\n";
@@ -325,7 +339,7 @@ reg:	COPYI
                 return reg1;
 	};
 
-reg:	ADDI1(reg,rc)
+reg:	BINOP1(reg,rc)
 	{ $cost[0].cost=$cost[2].cost+$cost[3].cost+1; }
 	= {
 		int i;
@@ -334,7 +348,54 @@ reg:	ADDI1(reg,rc)
 		std::cerr << burm_string[_ern] << "\n";
                 std::string reg1 = $action[2](indent+1);
                 NODEPTR cur = _s->node;
-                std::cout << binop(cur->inst) + $action[3](indent+1) + ", " + reg1 + "\n";
+                if (cur->inst->getOpcode() != Instruction::UDiv && 
+                    cur->inst->getOpcode() != Instruction::SDiv)
+                {
+                  std::cout << binop(cur->inst) + $action[3](indent+1) + ", " + reg1 + "\n";
+                  RegTable[cur->inst] = reg1;
+                  InsTable[reg1] = cur->inst;
+                  return reg1;
+                }
+                else if (reg1.compare("%rax") != 0)
+                {
+                  spillReg("%rdx");
+                  spillReg("%rax");
+                  std::cout << "\tmovq\t" << reg1 << ", %rax\n";
+                  reg1 = "%rax";
+                }
+		std::cout << "\tcqto\n";
+                std::cout << binop(cur->inst) + $action[3](indent+1) + "\n";
+                RegTable[cur->inst] = reg1;
+                InsTable[reg1] = cur->inst;
+                return reg1;
+	};
+
+reg:	BINOP2(rc, reg)
+	{ $cost[0].cost=$cost[2].cost+$cost[3].cost+1; }
+	= {
+		int i;
+		for (i = 0; i < indent; i++)
+			std::cerr << " ";
+		std::cerr << burm_string[_ern] << "\n";
+                std::string reg1 = $action[3](indent+1);
+                NODEPTR cur = _s->node;
+                if (cur->inst->getOpcode() != Instruction::UDiv && 
+                    cur->inst->getOpcode() != Instruction::SDiv)
+                {
+                  std::cout << binop(cur->inst) + $action[2](indent+1) + ", " + reg1 + "\n";
+                  RegTable[cur->inst] = reg1;
+                  InsTable[reg1] = cur->inst;
+                  return reg1;
+                }
+                else if (reg1.compare("%rax") != 0)
+                {
+                  spillReg("%rdx");
+                  spillReg("%rax");
+                  std::cout << "\tmovq\t" << reg1 << ", %rax\n";
+                  reg1 = "%rax";
+                }
+		std::cout << "\tcqto\n";
+                std::cout << binop(cur->inst) + $action[2](indent+1) + "\n";
                 RegTable[cur->inst] = reg1;
                 InsTable[reg1] = cur->inst;
                 return reg1;
@@ -359,13 +420,13 @@ reg:	LOADI
 		  inst->print(rso);
 		  rso.flush();
     		  int idx = str.find_first_of(' ');
-		  std::cout << "\tmovq " + str.substr(1, idx -1) + "(%rip), " + reg1 + "\n";
+		  std::cout << "\tmovq\t" + str.substr(1, idx -1) + "(%rip), " + reg1 + "\n";
                 }
 		else
 		{
                   Instruction *inst = dyn_cast<Instruction>(cur->inst->getOperand(0));
                   int offset = SymTable[inst];
-                  std::cout << "\tmovq " + std::to_string(offset) + "(%rbp), " + reg1 + "\n";
+                  std::cout << "\tmovq\t" + std::to_string(offset) + "(%rbp), " + reg1 + "\n";
 		}
                 return reg1;
 	};
@@ -394,7 +455,7 @@ disp:	ADDRLP
                 return ret;
 	};
 
-disp:	ADDI1(reg,rc)
+disp:	BINOP1(reg,rc)
 	{ $cost[0].cost=$cost[2].cost+$cost[3].cost+1; }
 	= {
 		int i;
@@ -402,12 +463,59 @@ disp:	ADDI1(reg,rc)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
                 std::string reg1 = $action[2](indent+1);
-                std::cout << binop(_s->node->inst) + $action[3](indent+1) + ", " + reg1 + "\n";
                 NODEPTR cur = _s->node;
+                if (cur->inst->getOpcode() != Instruction::UDiv && 
+                    cur->inst->getOpcode() != Instruction::SDiv)
+                {
+                  std::cout << binop(cur->inst) + $action[3](indent+1) + ", " + reg1 + "\n";
+                  RegTable[cur->inst] = reg1;
+                  InsTable[reg1] = cur->inst;
+                  return reg1;
+                }
+                else if (reg1.compare("%rax") != 0)
+                {
+                  spillReg("%rdx");
+                  spillReg("%rax");
+                  std::cout << "\tmovq\t" << reg1 << ", %rax\n";
+                  reg1 = "%rax";
+                }
+		std::cout << "\tcqto\n";
+                std::cout << binop(cur->inst) + $action[3](indent+1) + "\n";
                 RegTable[cur->inst] = reg1;
+                InsTable[reg1] = cur->inst;
                 return reg1;
 	};
 
+disp:	BINOP2(rc, reg)
+	{ $cost[0].cost=$cost[2].cost+$cost[3].cost+1; }
+	= {
+		int i;
+		for (i = 0; i < indent; i++)
+			std::cerr << " ";
+		std::cerr << burm_string[_ern] << "\n";
+                std::string reg1 = $action[3](indent+1);
+                NODEPTR cur = _s->node;
+                if (cur->inst->getOpcode() != Instruction::UDiv && 
+                    cur->inst->getOpcode() != Instruction::SDiv)
+                {
+                  std::cout << binop(cur->inst) + $action[2](indent+1) + ", " + reg1 + "\n";
+                  RegTable[cur->inst] = reg1;
+                  InsTable[reg1] = cur->inst;
+                  return reg1;
+                }
+                else if (reg1.compare("%rax") != 0)
+                {
+                  spillReg("%rdx");
+                  spillReg("%rax");
+                  std::cout << "\tmovq\t" << reg1 << ", %rax\n";
+                  reg1 = "%rax";
+                }
+		std::cout << "\tcqto\n";
+                std::cout << binop(cur->inst) + $action[2](indent+1) + "\n";
+                RegTable[cur->inst] = reg1;
+                InsTable[reg1] = cur->inst;
+                return reg1;
+	};
 disp:	GLOBI
 	{ $cost[0].cost=0; }
 	= {
@@ -530,7 +638,7 @@ static void GlobalLayOut()
       std::cout << "\t.data\n";
       flag = false;
     }
-    std::cout << "\t.global\t" << var << "\n";
+    std::cout << "\t.globl\t" << var << "\n";
     std::cout << "\t.align\t" << "8\n";
     std::cout << var << ":\n";
     std::cout << "\t.quad\t" << val << "\n";
@@ -552,4 +660,25 @@ static void GlobalLayOut()
     std::cout << "\t.comm\t" << var << ",8,8\n";
   }
 
+}
+
+/* Generate the header for the assembly code */
+void headerGen(char *filename)
+{ 
+  std::cout << "\t.text\n";
+  std::cout << "\t.file\t" << "\"" << filename << "\"\n";
+  std::cout << "\t.global\tmain\n";
+  std::cout << "\t.align\t16, 0x90\n";
+  std::cout << "\t.type\tmain,@function\n";
+  std::cout << "main:\n";
+  std::cout << "\tpushq\t%rbp\n";
+  std::cout << "\tmovq\t%rsp, %rbp\n";
+}
+
+/* Generate the tail for the assembly code */
+void tailGen()
+{
+  //std::cout << "\txorl\t%eax, %eax\n";
+  std::cout << "\tpopq\t%rbp\n";
+  std::cout << "\tretq\n";
 }

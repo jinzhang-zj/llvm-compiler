@@ -101,7 +101,7 @@ static cl::opt<bool> AsmVerbose("asm-verbose",
 
 /*
 enum {
-  LOADI = 0, STOREI = 1, CONSTT = 2, ADDI = 3, COPYI = 4, ADDRLP = 5  
+  LOADI = 0, STOREI = 1, CONSTT = 2, BINOP = 3, COPYI = 4, ADDRLP = 5  
 };
 
 typedef struct tree {
@@ -406,14 +406,18 @@ bool setTreeNode(Tree t, Instruction* inst) {
   case Instruction::Mul: 
   case Instruction::UDiv: 
   case Instruction::SDiv: 
+  case Instruction::Shl: 
+  case Instruction::LShr: 
+  case Instruction::AShr: 
   case Instruction::And: 
   case Instruction::Or: 
   case Instruction::Xor: 
   {
-    t->op = ADDI1;
+    t->op = BINOP1;
     t->inst = inst;
     t->num_kids = 2;
     
+    int cnstNum = -1;
     // Next, we will generate nodes for children of this node
     for(int b = 0; b<2; ++b) {
       // We need to construct/locate the nodes corresponding to the child of this add node
@@ -422,6 +426,7 @@ bool setTreeNode(Tree t, Instruction* inst) {
       Instruction *kidinst = dyn_cast<Instruction>(inst->getOperand(b));
       if(isa<Constant>(inst->getOperand(b))) {
 	t->kids[b] = makeConstantNode(inst, b);
+        cnstNum = b;
       }
     
       // If it is not a constant, then it has been computed before this instruction
@@ -447,6 +452,9 @@ bool setTreeNode(Tree t, Instruction* inst) {
 	}
       }
     }
+
+    if (cnstNum == 0)
+      t->op = BINOP2;
     break;
   }
   default: errs() << "Instruction not supported\n";
@@ -501,8 +509,8 @@ int main(int argc, char **argv) {
   
   int count = 0;
   int regNum = 3;
-  std::string RegArray[14] = {"%rax", "%rbx", "%r10", "%r11", "%r12", "%r13", "%r14", "%r15", "%r9", "%8", "%rcx", "%rdx",
-				"%rsi", "%rdi"};
+  std::string RegArray[14] = {"%rax", "%rbx", "%r10", "%r11", "%r12", "%r13", "%r14", 
+				"%r15", "%r9", "%8", "%rcx", "%rdx","%rsi", "%rdi"};
 
   // Get the active pool of registers
   for (int i = 0; i < regNum; ++i)
@@ -599,6 +607,7 @@ int main(int argc, char **argv) {
     }
   }
   
+/*
   for(Module::iterator func_itr = M->begin(); func_itr != M->end(); ++func_itr) 
   {
     for(Function::iterator BB_itr = func_itr->begin(); BB_itr != func_itr->end(); ++BB_itr) 
@@ -611,11 +620,13 @@ int main(int argc, char **argv) {
       }
     }
   }
-  
+*/
+
+  headerGen(argv[0]);
   for( Tree t : rootKeys ) {
     gen(t);
     }
-  
+  tailGen();
   GlobalLayOut();
   errs() << "Nodes corresponding to program instructions: \n"; 
   //printNodes();
