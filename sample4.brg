@@ -111,7 +111,7 @@ static std::string spillAtInterval(Instruction *inst)
   for (auto it = InsTable.begin(); it != InsTable.end(); ++it)
   {
     NODEPTR cur = nodes[it->second];
-    if (cur->end > maxEnd && inst != it->second)
+    if (cur->end > maxEnd)
     {
       maxEnd = cur->end;
       maxIns = cur->inst;
@@ -204,9 +204,8 @@ stmt: URET
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
-		std::cout << "\tretq\t\n"; 
+		std::cout << "\txorq\t%rax, %rax\n";
                 return "";
-
 	};
 
 
@@ -222,7 +221,7 @@ stmt:	STOREI(disp,rc)
 	};
 
 
-reg:	ICMPI(reg,rc)
+reg:	ICMPI(rc,reg)
 	{ $cost[0].cost=$cost[2].cost+$cost[3].cost+1; }
 	= {
 		int i;
@@ -231,8 +230,8 @@ reg:	ICMPI(reg,rc)
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
-                std::string reg1 = $action[2](indent+1);
-                std::cout << "\tcmp\t" + reg1 +  ", " + $action[3](indent+1) + "\n";
+                std::string reg1 = $action[3](indent+1);
+                std::cout << "\tcmpq\t" + $action[2](indent+1) + ", " + reg1  +  "\n";
                 RegTable[cur->inst] = reg1;
                 return reg1;
 	};
@@ -413,7 +412,16 @@ reg:	BINOP1(reg,rc)
                   reg1 = "%rax";
                 }
 		std::cout << "\tcqto\n";
-                std::cout << binop(cur->inst) + $action[3](indent+1) + "\n";
+		std::string reg2 = $action[3](indent+1);
+		if (reg2[0] == '%')
+                  std::cout << binop(cur->inst) + $action[3](indent+1) + "\n";
+		else
+		{
+		  std::string reg3 = getNexReg(cur->inst);
+		  std::cout << "\tmovq\t" << reg2 << ", " << reg3 << "\n";
+                  std::cout << binop(cur->inst) + reg3 + "\n";
+		  pools.insert(reg3);
+		}
                 RegTable[cur->inst] = reg1;
                 InsTable[reg1] = cur->inst;
                 return reg1;
@@ -444,9 +452,19 @@ reg:	BINOP2(rc, reg)
                   reg1 = "%rax";
                 }
 		std::cout << "\tcqto\n";
-                std::cout << binop(cur->inst) + $action[2](indent+1) + "\n";
+		std::string reg2 = $action[2](indent+1);
+		if (reg2[0] == '%')
+                  std::cout << binop(cur->inst) + reg2 + "\n";
+		else
+		{
+		  std::string reg3 = getNexReg(cur->inst);
+		  std::cout << "\tmovq\t" << reg2 << ", " << reg3 << "\n";
+                  std::cout << binop(cur->inst) + reg3 + "\n";
+		  pools.insert(reg3);
+		}
                 RegTable[cur->inst] = reg1;
                 InsTable[reg1] = cur->inst;
+
                 return reg1;
 	};
 
@@ -561,7 +579,16 @@ disp:	BINOP1(reg,rc)
                   reg1 = "%rax";
                 }
 		std::cout << "\tcqto\n";
-                std::cout << binop(cur->inst) + $action[3](indent+1) + "\n";
+		std::string reg2 = $action[3](indent+1);
+		if (reg2[0] == '%')
+                  std::cout << binop(cur->inst) + $action[3](indent+1) + "\n";
+		else
+		{
+		  std::string reg3 = getNexReg(cur->inst);
+		  std::cout << "\tmovq\t" << reg2 << ", " << reg3 << "\n";
+                  std::cout << binop(cur->inst) + reg3 + "\n";
+		  pools.insert(reg3);
+		}
                 RegTable[cur->inst] = reg1;
                 InsTable[reg1] = cur->inst;
                 return reg1;
@@ -592,13 +619,20 @@ disp:	BINOP2(rc, reg)
                   reg1 = "%rax";
                 }
 		std::cout << "\tcqto\n";
-                std::cout << binop(cur->inst) + $action[2](indent+1) + "\n";
+		std::string reg2 = $action[2](indent+1);
+		if (reg2[0] == '%')
+                  std::cout << binop(cur->inst) + reg2 + "\n";
+		else
+		{
+		  std::string reg3 = getNexReg(cur->inst);
+		  std::cout << "\tmovq\t" << reg2 << ", " << reg3 << "\n";
+                  std::cout << binop(cur->inst) + reg3 + "\n";
+		  pools.insert(reg3);
+		}
                 RegTable[cur->inst] = reg1;
                 InsTable[reg1] = cur->inst;
                 return reg1;
 	};
-
-
 disp:	GLOBI
 	{ $cost[0].cost=0; }
 	= {
@@ -614,7 +648,6 @@ disp:	GLOBI
 		std::string rip = "(%rip)";
 		return str.substr(1, idx - 1) + rip;
 	};
-
 
 rc:	con
 	{ $cost[0].cost=$cost[1].cost; }

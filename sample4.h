@@ -432,16 +432,16 @@ int burm_line_numbers[] = {
   /* 10 */  354,
   /* 11 */  372,
   /* 12 */  392,
-  /* 13 */  423,
-  /* 14 */  454,
-  /* 15 */  495,
-  /* 16 */  519,
-  /* 17 */  539,
-  /* 18 */  571,
-  /* 19 */  601,
-  /* 20 */  617,
-  /* 21 */  627,
-  /* 22 */  637,
+  /* 13 */  432,
+  /* 14 */  473,
+  /* 15 */  514,
+  /* 16 */  538,
+  /* 17 */  558,
+  /* 18 */  599,
+  /* 19 */  638,
+  /* 20 */  654,
+  /* 21 */  664,
+  /* 22 */  674,
 };
 
 #pragma GCC diagnostic push
@@ -1041,7 +1041,16 @@ int indent)
                   reg1 = "%rax";
                 }
 		std::cout << "\tcqto\n";
-                std::cout << binop(cur->inst) + rc_action(_s->kids[1],indent+1) + "\n";
+		std::string reg2 = rc_action(_s->kids[1],indent+1);
+		if (reg2[0] == '%')
+                  std::cout << binop(cur->inst) + rc_action(_s->kids[1],indent+1) + "\n";
+		else
+		{
+		  std::string reg3 = getNexReg(cur->inst);
+		  std::cout << "\tmovq\t" << reg2 << ", " << reg3 << "\n";
+                  std::cout << binop(cur->inst) + reg3 + "\n";
+		  pools.insert(reg3);
+		}
                 RegTable[cur->inst] = reg1;
                 InsTable[reg1] = cur->inst;
                 return reg1;
@@ -1075,9 +1084,19 @@ int indent)
                   reg1 = "%rax";
                 }
 		std::cout << "\tcqto\n";
-                std::cout << binop(cur->inst) + rc_action(_s->kids[0],indent+1) + "\n";
+		std::string reg2 = rc_action(_s->kids[0],indent+1);
+		if (reg2[0] == '%')
+                  std::cout << binop(cur->inst) + reg2 + "\n";
+		else
+		{
+		  std::string reg3 = getNexReg(cur->inst);
+		  std::cout << "\tmovq\t" << reg2 << ", " << reg3 << "\n";
+                  std::cout << binop(cur->inst) + reg3 + "\n";
+		  pools.insert(reg3);
+		}
                 RegTable[cur->inst] = reg1;
                 InsTable[reg1] = cur->inst;
+
                 return reg1;
 	
 }
@@ -1218,7 +1237,16 @@ int indent)
                   reg1 = "%rax";
                 }
 		std::cout << "\tcqto\n";
-                std::cout << binop(cur->inst) + rc_action(_s->kids[1],indent+1) + "\n";
+		std::string reg2 = rc_action(_s->kids[1],indent+1);
+		if (reg2[0] == '%')
+                  std::cout << binop(cur->inst) + rc_action(_s->kids[1],indent+1) + "\n";
+		else
+		{
+		  std::string reg3 = getNexReg(cur->inst);
+		  std::cout << "\tmovq\t" << reg2 << ", " << reg3 << "\n";
+                  std::cout << binop(cur->inst) + reg3 + "\n";
+		  pools.insert(reg3);
+		}
                 RegTable[cur->inst] = reg1;
                 InsTable[reg1] = cur->inst;
                 return reg1;
@@ -1252,7 +1280,16 @@ int indent)
                   reg1 = "%rax";
                 }
 		std::cout << "\tcqto\n";
-                std::cout << binop(cur->inst) + rc_action(_s->kids[0],indent+1) + "\n";
+		std::string reg2 = rc_action(_s->kids[0],indent+1);
+		if (reg2[0] == '%')
+                  std::cout << binop(cur->inst) + reg2 + "\n";
+		else
+		{
+		  std::string reg3 = getNexReg(cur->inst);
+		  std::cout << "\tmovq\t" << reg2 << ", " << reg3 << "\n";
+                  std::cout << binop(cur->inst) + reg3 + "\n";
+		  pools.insert(reg3);
+		}
                 RegTable[cur->inst] = reg1;
                 InsTable[reg1] = cur->inst;
                 return reg1;
