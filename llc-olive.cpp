@@ -288,7 +288,6 @@ bool setTreeNode(Tree t, Instruction* inst) {
     break;
   }
 
-
     // Store instruction
   case Instruction::Store: {
     //errs() << "Instruction Store: ";
@@ -422,12 +421,20 @@ bool setTreeNode(Tree t, Instruction* inst) {
     t->inst = inst;
     t->num_kids = 2;
     
-    
-    for(int b=0; b < 2; b++ ) {
-      Instruction* operand = dyn_cast<Instruction>(inst->getOperand(b));
+    if(isa<Constant>(inst->getOperand(1))) {
+      CmpInst* i = dyn_cast<CmpInst>(inst); 
+      // i->setPredicate(i->getSwappedPredicate());
+      errs() << *i <<"\n";
+      i->swapOperands();
+      t->inst = dyn_cast<Instruction>(i);
+      errs() << *t->inst <<"\n";
       
-      if(isa<Constant>(inst->getOperand(b))) {
-	t->kids[b] = makeConstantNode(inst, b);
+    }
+    for(int b=0; b < 2; b++ ) {
+      Instruction* operand = dyn_cast<Instruction>(t->inst->getOperand(b));
+      
+      if(isa<Constant>(t->inst->getOperand(b))) {
+	t->kids[b] = makeConstantNode(t->inst, b);
        
       }
       
@@ -562,7 +569,14 @@ int main(int argc, char **argv) {
   }
   
   int count = 0;
-  int regNum = 3;	// this shall be provided as an argument
+  int regNum = 3; //atoi(argv[1]);	// this shall be provided as an argument
+  if (regNum <= 0 || regNum > 14)
+  {
+    std::cerr << "invalid register number\n";
+    return 1;
+  }
+
+
   std::string RegArray[14] = {"%rax", "%rbx", "%r10", "%r11", "%r12", "%r13", "%r14", 
 				"%r15", "%r9", "%8", "%rcx", "%rdx","%rsi", "%rdi"};
 
@@ -589,16 +603,6 @@ int main(int argc, char **argv) {
 	    errs() << dyn_cast<Constant>(inst_itr->getOperand(i))<<" ";
 	  else 
 	    errs() << dyn_cast<Instruction>(inst_itr->getOperand(i)) <<" ";
-
-        /*  if(isa<GlobalValue>(inst_itr->getOperand(i))) {
-            Instruction *inst = (Instruction *)inst_itr->getOperand(i);
-            if (gvars.find(inst) == gvars.end())
-            {
-              Tree t = makeGlobalNode(inst);
-              gvars.insert( std::make_pair(inst, t));
-            }
-            //errs() << "Instruction " << *inst << " global opcode name " << *(inst->getOperand(0)) << "\n";
-          }*/
 	}
 	errs() << "\n";
 	
@@ -643,7 +647,6 @@ int main(int argc, char **argv) {
 
 	// Finally, if inst_itr has multiple uses, we make it a root node
 	if(inst_itr->getNumUses() >= 2) {  
-	  errs() << "multiple use " << *inst_itr << "\n";
 	  roots.insert( std::make_pair(inst_itr, t) );
           rootKeys.push_back(t);
 	}
@@ -692,8 +695,8 @@ int main(int argc, char **argv) {
 	std::cout << labelTable[BB] <<": \n";
       printed[BB]=1;
     }
-      gen(t);
-    }
+    gen(t);
+  }
   tailGen();
   GlobalLayOut();
   

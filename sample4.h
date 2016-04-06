@@ -116,7 +116,7 @@ static std::string spillAtInterval(Instruction *inst)
   for (auto it = InsTable.begin(); it != InsTable.end(); ++it)
   {
     NODEPTR cur = nodes[it->second];
-    if (cur->end > maxEnd && inst != it->second)
+    if (cur->end > maxEnd)
     {
       maxEnd = cur->end;
       maxIns = cur->inst;
@@ -286,12 +286,12 @@ std::string burm_ntname[] = {
 static short burm_nts_0[] = { burm___NT, burm___NT, burm___NT, 0 };
 static short burm_nts_1[] = { 0 };
 static short burm_nts_2[] = { burm_disp_NT, burm_rc_NT, 0 };
-static short burm_nts_3[] = { burm_reg_NT, burm_rc_NT, 0 };
-static short burm_nts_4[] = { burm_disp_NT, burm_disp_NT, 0 };
-static short burm_nts_5[] = { burm_rc_NT, 0 };
-static short burm_nts_6[] = { burm_reg_NT, 0 };
-static short burm_nts_7[] = { burm_con_NT, burm_con_NT, 0 };
-static short burm_nts_8[] = { burm_rc_NT, burm_reg_NT, 0 };
+static short burm_nts_3[] = { burm_rc_NT, burm_reg_NT, 0 };
+static short burm_nts_4[] = { burm_reg_NT, burm_rc_NT, 0 };
+static short burm_nts_5[] = { burm_disp_NT, burm_disp_NT, 0 };
+static short burm_nts_6[] = { burm_rc_NT, 0 };
+static short burm_nts_7[] = { burm_reg_NT, 0 };
+static short burm_nts_8[] = { burm_con_NT, burm_con_NT, 0 };
 static short burm_nts_9[] = { burm_con_NT, 0 };
 
 short *burm_nts[] = {
@@ -299,24 +299,24 @@ short *burm_nts[] = {
   burm_nts_1,  /* 1 */
   burm_nts_2,  /* 2 */
   burm_nts_3,  /* 3 */
-  burm_nts_3,  /* 4 */
-  burm_nts_4,  /* 5 */
+  burm_nts_4,  /* 4 */
+  burm_nts_5,  /* 5 */
   burm_nts_1,  /* 6 */
-  burm_nts_5,  /* 7 */
-  burm_nts_6,  /* 8 */
-  burm_nts_6,  /* 9 */
+  burm_nts_6,  /* 7 */
+  burm_nts_7,  /* 8 */
+  burm_nts_7,  /* 9 */
   burm_nts_1,  /* 10 */
-  burm_nts_7,  /* 11 */
-  burm_nts_3,  /* 12 */
-  burm_nts_8,  /* 13 */
+  burm_nts_8,  /* 11 */
+  burm_nts_4,  /* 12 */
+  burm_nts_3,  /* 13 */
   burm_nts_1,  /* 14 */
   burm_nts_1,  /* 15 */
-  burm_nts_7,  /* 16 */
-  burm_nts_3,  /* 17 */
-  burm_nts_8,  /* 18 */
+  burm_nts_8,  /* 16 */
+  burm_nts_4,  /* 17 */
+  burm_nts_3,  /* 18 */
   burm_nts_1,  /* 19 */
   burm_nts_9,  /* 20 */
-  burm_nts_6,  /* 21 */
+  burm_nts_7,  /* 21 */
   burm_nts_1,  /* 22 */
 };
 
@@ -365,7 +365,7 @@ std::string burm_string[] = {
   /* 0 */  "stmt: BURP(_,_,_)",
   /* 1 */  "stmt: URET",
   /* 2 */  "stmt: STOREI(disp,rc)",
-  /* 3 */  "reg: ICMPI(reg,rc)",
+  /* 3 */  "reg: ICMPI(rc,reg)",
   /* 4 */  "stmt: STOREI(reg,rc)",
   /* 5 */  "stmt: STOREI2(disp,disp)",
   /* 6 */  "stmt: UJUMPI",
@@ -438,10 +438,10 @@ int burm_line_numbers[] = {
   /* 16 */  519,
   /* 17 */  539,
   /* 18 */  571,
-  /* 19 */  603,
-  /* 20 */  620,
-  /* 21 */  630,
-  /* 22 */  640,
+  /* 19 */  601,
+  /* 20 */  617,
+  /* 21 */  627,
+  /* 22 */  637,
 };
 
 #pragma GCC diagnostic push
@@ -556,7 +556,7 @@ int burm_cost_code(COST *_c, int _ern,struct burm_state *_s)
 {
 
 
- (*_c).cost=_s->kids[0]->cost[burm_reg_NT].cost+_s->kids[1]->cost[burm_rc_NT].cost+1; 
+ (*_c).cost=_s->kids[0]->cost[burm_rc_NT].cost+_s->kids[1]->cost[burm_reg_NT].cost+1; 
 }
   break;
   case 4:
@@ -963,8 +963,8 @@ int indent)
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
-                std::string reg1 = reg_action(_s->kids[0],indent+1);
-                std::cout << "\tcmp\t" + reg1 +  ", " + rc_action(_s->kids[1],indent+1) + "\n";
+                std::string reg1 = reg_action(_s->kids[1],indent+1);
+                std::cout << "\tcmpq\t" + rc_action(_s->kids[0],indent+1) + ", " + reg1  +  "\n";
                 RegTable[cur->inst] = reg1;
                 return reg1;
 	
@@ -1626,9 +1626,9 @@ burm_trace(burm_np, 5, c);         s->cost[burm_stmt_NT] = c ;
     children=GET_KIDS(u);
     for(i=0;i<arity;i++)
       k[i]=burm_label1(children[i]);
-    if (   /* reg: ICMPI(reg,rc) */
-      k[0]->rule.burm_reg && 
-      k[1]->rule.burm_rc
+    if (   /* reg: ICMPI(rc,reg) */
+      k[0]->rule.burm_rc && 
+      k[1]->rule.burm_reg
     ) {
       if(burm_cost_code(&c,3,s) && COST_LESS(c,s->cost[burm_reg_NT])) {
 burm_trace(burm_np, 3, c);         s->cost[burm_reg_NT] = c ;
@@ -1788,7 +1788,7 @@ NODEPTR *burm_kids(NODEPTR p, int eruleno, NODEPTR kids[]) {
   case 11: /* reg: BINOP1(con,con) */
   case 5: /* stmt: STOREI2(disp,disp) */
   case 4: /* stmt: STOREI(reg,rc) */
-  case 3: /* reg: ICMPI(reg,rc) */
+  case 3: /* reg: ICMPI(rc,reg) */
   case 2: /* stmt: STOREI(disp,rc) */
     kids[0] = burm_child(p,0);
     kids[1] = burm_child(p,1);
