@@ -562,7 +562,7 @@ int main(int argc, char **argv) {
   }
   
   int count = 0;
-  int regNum = 3;
+  int regNum = 3;	// this shall be provided as an argument
   std::string RegArray[14] = {"%rax", "%rbx", "%r10", "%r11", "%r12", "%r13", "%r14", 
 				"%r15", "%r9", "%8", "%rcx", "%rdx","%rsi", "%rdi"};
 
@@ -643,6 +643,7 @@ int main(int argc, char **argv) {
 
 	// Finally, if inst_itr has multiple uses, we make it a root node
 	if(inst_itr->getNumUses() >= 2) {  
+	  errs() << "multiple use " << *inst_itr << "\n";
 	  roots.insert( std::make_pair(inst_itr, t) );
           rootKeys.push_back(t);
 	}

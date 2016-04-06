@@ -91,13 +91,11 @@ static int getNexOff()
 // Expire the old register that's not useful
 static void expireOldInterval(Instruction *inst) {
   int T = InstIdx[inst];
-  //errs() << "trying " << *inst << " at interval " << T << "\n";
   for (auto it = InsTable.begin(); it != InsTable.end(); ++it)
   {
     NODEPTR cur = nodes[it->second];
     if (cur->end <= T)
     {
-      //errs() << "expire " << it->first << " at time interval " << T << "\n";
       pools.insert(it->first);
       InsTable.erase(it->first);
       RegTable.erase(it->second);
@@ -113,7 +111,7 @@ static std::string spillAtInterval(Instruction *inst)
   for (auto it = InsTable.begin(); it != InsTable.end(); ++it)
   {
     NODEPTR cur = nodes[it->second];
-    if (cur->end > maxEnd)
+    if (cur->end > maxEnd && inst != it->second)
     {
       maxEnd = cur->end;
       maxIns = cur->inst;
@@ -264,6 +262,7 @@ stmt:	STOREI2(disp,disp)
                 InsTable[reg1] = _s->node->inst;
                 std::cout << "\tleaq\t" << $action[3](indent+1) << ", " << reg1 << "\n";
 		std::cout << "\tmovq\t" + reg1 + ", " + $action[2](indent+1) + "\n";
+                pools.insert(reg1);
 		return "";
 	};
 
@@ -363,11 +362,30 @@ reg:	COPYI
                   std::cout << "\tmovq\t" + RegTable[_s->node->inst] + ", " + reg1 + "\n";
                 if (RegTable[_s->node->inst][0] != '%')
                 {
-                  //errs() << "copy updating " << *(_s->node->inst) << " to " << reg1 << "\n";
                   RegTable[_s->node->inst] = reg1;
                   InsTable[reg1] = _s->node->inst;
                 }
                 return reg1;
+	};
+
+reg:	BINOP1(con, con)
+	{ $cost[0].cost=$cost[2].cost+$cost[3].cost+1; }
+	= {
+		int i;
+		for (i = 0; i < indent; i++)
+			std::cerr << " ";
+		std::cerr << burm_string[_ern] << "\n";
+
+                NODEPTR cur = _s->node;
+                Constant* cnst1 = dyn_cast<Constant>(cur->inst->getOperand(0));
+                long long val1 = cnst1->getUniqueInteger().getSExtValue();
+                Constant* cnst2 = dyn_cast<Constant>(cur->inst->getOperand(1));
+                long long val2 = cnst2->getUniqueInteger().getSExtValue();
+		std::string reg1 = getNexReg(cur->inst);
+		std::cout << "\tmovq\t$" << std::to_string(val1 + val2) << ", " << reg1 << "\n";
+		InsTable[reg1] = cur->inst;
+		RegTable[cur->inst] = reg1;
+		return reg1;
 	};
 
 reg:	BINOP1(reg,rc)
@@ -377,8 +395,8 @@ reg:	BINOP1(reg,rc)
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
-                std::string reg1 = $action[2](indent+1);
                 NODEPTR cur = _s->node;
+                std::string reg1 = $action[2](indent+1);
                 if (cur->inst->getOpcode() != Instruction::UDiv && 
                     cur->inst->getOpcode() != Instruction::SDiv)
                 {
@@ -468,6 +486,7 @@ reg:	LOADI
                   int offset = SymTable[kidinst];
                   std::cout << "\tmovq\t" + std::to_string(offset) + "(%rbp), " + reg2 + "\n";
                   std::cout << "\tmovq\t(" + reg2 + "), " + reg1 + "\n";
+		  pools.insert(reg2);
                 }
                 return reg1;
 	};
@@ -496,6 +515,26 @@ disp:	ADDRLP
                 return ret;
 	};
 
+disp:	BINOP1(con, con)
+	{ $cost[0].cost=$cost[2].cost+$cost[3].cost+1; }
+	= {
+		int i;
+		for (i = 0; i < indent; i++)
+			std::cerr << " ";
+		std::cerr << burm_string[_ern] << "\n";
+
+                NODEPTR cur = _s->node;
+                Constant* cnst1 = dyn_cast<Constant>(cur->inst->getOperand(0));
+                long long val1 = cnst1->getUniqueInteger().getSExtValue();
+                Constant* cnst2 = dyn_cast<Constant>(cur->inst->getOperand(1));
+                long long val2 = cnst2->getUniqueInteger().getSExtValue();
+		std::string reg1 = getNexReg(cur->inst);
+		std::cout << "\tmovq\t$" << std::to_string(val1 + val2) << ", " << reg1 << "\n";
+		InsTable[reg1] = cur->inst;
+		RegTable[cur->inst] = reg1;
+		return reg1;
+	};
+
 disp:	BINOP1(reg,rc)
 	{ $cost[0].cost=$cost[2].cost+$cost[3].cost+1; }
 	= {
@@ -503,8 +542,9 @@ disp:	BINOP1(reg,rc)
 		for (i = 0; i < indent; i++)
 			std::cerr << " ";
 		std::cerr << burm_string[_ern] << "\n";
-                std::string reg1 = $action[2](indent+1);
+
                 NODEPTR cur = _s->node;
+                std::string reg1 = $action[2](indent+1);
                 if (cur->inst->getOpcode() != Instruction::UDiv && 
                     cur->inst->getOpcode() != Instruction::SDiv)
                 {
@@ -557,6 +597,8 @@ disp:	BINOP2(rc, reg)
                 InsTable[reg1] = cur->inst;
                 return reg1;
 	};
+
+
 disp:	GLOBI
 	{ $cost[0].cost=0; }
 	= {
@@ -572,6 +614,7 @@ disp:	GLOBI
 		std::string rip = "(%rip)";
 		return str.substr(1, idx - 1) + rip;
 	};
+
 
 rc:	con
 	{ $cost[0].cost=$cost[1].cost; }
