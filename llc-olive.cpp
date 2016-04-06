@@ -55,6 +55,11 @@ using namespace llvm;
 static cl::opt<std::string>
 InputFilename(cl::Positional, cl::desc("<input bitcode>"), cl::init("-"));
 
+static cl::opt<int>
+regNumber("num_regs", cl::Hidden, cl::init(3),
+	cl::value_desc("N"),
+	cl::desc("Number of registers available"));
+
 static cl::opt<std::string>
 OutputFilename("o", cl::desc("Output filename"), cl::value_desc("filename"));
 
@@ -569,8 +574,8 @@ int main(int argc, char **argv) {
   }
   
   int count = 0;
-  int regNum = 3; //atoi(argv[1]);	// this shall be provided as an argument
-  if (regNum <= 0 || regNum > 14)
+  int N = regNumber; 
+  if (N <= 0 || N > 10)
   {
     std::cerr << "invalid register number\n";
     return 1;
@@ -581,7 +586,7 @@ int main(int argc, char **argv) {
 				"%r15", "%r9", "%8", "%rcx", "%rdx","%rsi", "%rdi"};
 
   // Get the active pool of registers
-  for (int i = 0; i < regNum; ++i)
+  for (int i = 0; i < N; ++i)
     pools.insert(RegArray[i]);
 
   int num = 0;
